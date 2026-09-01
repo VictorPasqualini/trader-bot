@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Trader Bot</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="/assets/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+</head>
+<body>
+
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">TB</div>
+      <div class="brand-text">
+        <strong>Trader Bot</strong>
+        <span id="brand-mode">testnet</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h6v8H3zM9 3h6v18H9zM15 9h6v12h-6z"/></svg>
+        <span>Painel</span>
+      </button>
+      <button class="nav-item" data-view="lab">
+        <svg viewBox="0 0 24 24"><path d="M9 2h6v6l5 9a3 3 0 0 1-2.6 4.5H6.6A3 3 0 0 1 4 17l5-9z"/></svg>
+        <span>Laboratório</span>
+      </button>
+      <button class="nav-item" data-view="trades">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h10v2H4z"/></svg>
+        <span>Operações</span>
+      </button>
+      <button class="nav-item" data-view="validation">
+        <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5zm-1 13-3-3 1.4-1.4L11 12.2l4.6-4.6L17 9z"/></svg>
+        <span>Validação</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4-2 1 .3 2.2-2 1.2-1.8-1.3-2 .8-.6 2.1h-2.3l-.6-2.1-2-.8L6.2 16l-2-1.2L4.5 13l-2-1 .5-2.2 1.9-1L4.6 6.6l1.8-1.5 2 1 1.9-1L11 3h2l.7 2.1 1.9 1 2-1 1.8 1.5-.3 2.2 1.9 1z"/></svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="status-line"><span class="dot" id="dot-market"></span> Mercado</div>
+      <div class="status-line"><span class="dot" id="dot-account"></span> Conta</div>
+      <div class="status-line"><span class="dot" id="dot-bot"></span> Robô</div>
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <header class="topbar">
+      <div>
+        <h1 id="view-title">Painel</h1>
+        <p id="view-subtitle" class="muted">Resultado consolidado das estratégias em operação</p>
+      </div>
+      <div class="topbar-actions">
+        <div class="balance">
+          <span class="muted">Saldo livre</span>
+          <strong id="free-balance">—</strong>
+        </div>
+        <button class="btn btn-ghost" id="btn-refresh" title="Atualizar">
+          <svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+        </button>
+        <button class="btn btn-primary" id="btn-toggle-bot">Ligar robô</button>
+      </div>
+    </header>
+
+    <!-- ---------------------------------------------------------- DASHBOARD -->
+    <section class="view active" id="view-dashboard">
+
+      <div class="kpi-grid">
+        <div class="kpi kpi-hero">
+          <span class="kpi-label">Patrimônio</span>
+          <strong class="kpi-value" id="kpi-equity">—</strong>
+          <span class="kpi-delta" id="kpi-equity-delta">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Resultado total</span>
+          <strong class="kpi-value" id="kpi-pnl">—</strong>
+          <span class="kpi-sub" id="kpi-pnl-split">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Taxa de acerto</span>
+          <strong class="kpi-value" id="kpi-winrate">—</strong>
+          <span class="kpi-sub" id="kpi-winrate-sub">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Fator de lucro</span>
+          <strong class="kpi-value" id="kpi-pf">—</strong>
+          <span class="kpi-sub">ganho bruto ÷ perda bruta</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Rebaixamento máx.</span>
+          <strong class="kpi-value neg" id="kpi-dd">—</strong>
+          <span class="kpi-sub">maior queda do pico</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Sharpe</span>
+          <strong class="kpi-value" id="kpi-sharpe">—</strong>
+          <span class="kpi-sub">retorno por unidade de risco</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Curva de patrimônio</h2>
+          <span class="muted" id="equity-range">—</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="equity-chart" height="260"></canvas>
+          <div class="chart-tip" id="equity-tip" hidden></div>
+        </div>
+        <p class="empty" id="equity-empty" hidden>
+          Sem histórico ainda. Ligue o robô ou rode um ciclo manual em Ajustes.
+        </p>
+      </div>
+
+      <div class="split">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Posições abertas</h2>
+            <button class="btn btn-small btn-danger" id="btn-close-all">Encerrar todas</button>
+          </div>
+          <div class="table-wrap">
+            <table id="positions-table">
+              <thead>
+                <tr><th>Par</th><th>Estratégia</th><th class="num">Entrada</th>
+                    <th class="num">Atual</th><th class="num">Resultado</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="positions-empty">Nenhuma posição aberta.</p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Desempenho por estratégia</h2></div>
+          <div id="breakdown-list" class="bar-list"></div>
+          <p class="empty" id="breakdown-empty">Sem operações encerradas ainda.</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Atividade recente</h2></div>
+        <ul class="events" id="events-list"></ul>
+      </div>
+
+    </section>
+
+    <!-- --------------------------------------------------------------- LAB -->
+    <section class="view" id="view-lab">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Buscar estratégias vencedoras</h2>
+          <span class="muted">otimiza no histórico antigo, valida no histórico recente</span>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>Pares</span>
+            <input id="in-symbols" value="BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT">
+          </label>
+          <label class="field">
+            <span>Tempos gráficos</span>
+            <input id="in-intervals" value="1h, 4h">
+          </label>
+          <label class="field">
+            <span>Velas por par</span>
+            <input id="in-candles" type="number" value="3000" min="500" max="10000" step="500">
+          </label>
+          <div class="field field-action">
+            <button class="btn btn-primary" id="btn-research">Rodar pesquisa</button>
+          </div>
+        </div>
+
+        <div class="progress-box" id="research-progress" hidden>
+          <div class="progress-head">
+            <span id="research-stage">preparando…</span>
+            <span id="research-count">0/0</span>
+          </div>
+          <div class="progress"><div class="progress-bar" id="research-bar"></div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Ranking</h2>
+          <div class="head-tools">
+            <label class="check">
+              <input type="checkbox" id="chk-validated" checked>
+              <span>só aprovadas fora da amostra</span>
+            </label>
+            <button class="btn btn-small btn-primary" id="btn-allocate">Operar selecionadas</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="leaderboard-table">
+            <thead>
+              <tr>
+                <th class="tight"></th>
+                <th>Par</th><th>TF</th><th>Estratégia</th>
+                <th class="num">Retorno OOS</th><th class="num">Buy &amp; hold</th>
+                <th class="num">Sharpe</th><th class="num">Drawdown</th>
+                <th class="num">Trades</th><th class="num">Score</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="leaderboard-empty">
+          Nenhuma pesquisa rodada ainda. Clique em <strong>Rodar pesquisa</strong> acima.
+        </p>
+      </div>
+
+      <div class="panel" id="detail-panel" hidden>
+        <div class="panel-head">
+          <h2 id="detail-title">Detalhe</h2>
+          <button class="btn btn-small btn-ghost" id="btn-close-detail">Fechar</button>
+        </div>
+        <div class="detail-grid" id="detail-metrics"></div>
+        <div class="chart-wrap">
+          <canvas id="detail-chart" height="220"></canvas>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ------------------------------------------------------------ TRADES -->
+    <section class="view" id="view-trades">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Operações por moeda</h2>
+          <div class="seg" id="trades-mode">
+            <button class="seg-btn is-on" data-mode="live">Robô</button>
+            <button class="seg-btn" data-mode="sim">Simulado</button>
+          </div>
+          <span class="muted" id="trades-count">—</span>
+        </div>
+        <p class="hint" id="trades-hint"></p>
+        <div id="trades-groups"></div>
+        <p class="empty" id="trades-empty">Nenhuma operação registrada.</p>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- SETTINGS -->
+    <!-- --------------------------------------------------------- VALIDATION -->
+    <section class="view" id="view-validation">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Teste em janelas móveis</h2>
+          <span class="muted" id="validation-state">—</span>
+          <button class="btn btn-ghost" id="btn-validate">Recalcular</button>
+        </div>
+        <p class="hint">
+          Cada estratégia é recolocada no passado com os mesmos parâmetros que usa hoje
+          e obrigada a operar trimestre a trimestre, sem reajuste. O que importa não é o
+          total: é em quantos trimestres ela ganhou e qual foi o pior deles.
+        </p>
+        <div id="validation-cards"></div>
+        <p class="empty" id="validation-empty">Nenhuma estratégia em operação para validar.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings">
+
+      <div class="split">
+        <div class="panel">
+          <div class="panel-head"><h2>Operação</h2></div>
+          <div class="form-grid form-grid-2">
+            <label class="field">
+              <span>Modo</span>
+              <select id="in-mode">
+                <option value="testnet">Testnet (ordens reais, dinheiro fake)</option>
+                <option value="paper">Papel (simulado, sem ordens)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Intervalo entre ciclos (s)</span>
+              <input id="in-poll" type="number" min="10" max="3600" value="60">
+            </label>
+            <label class="field">
+              <span>Valor por operação (USDT)</span>
+              <input id="in-quote" type="number" min="10" step="10" value="200">
+            </label>
+            <label class="field">
+              <span>Máx. posições simultâneas</span>
+              <input id="in-maxpos" type="number" min="1" max="20" value="3">
+            </label>
+            <label class="field">
+              <span>Capital de referência (USDT)</span>
+              <input id="in-capital" type="number" min="100" step="100" value="10000">
+            </label>
+            <div class="field field-action">
+              <button class="btn btn-primary" id="btn-save-config">Salvar</button>
+            </div>
+          </div>
+          <div class="row-actions">
+            <button class="btn btn-ghost" id="btn-tick">Rodar um ciclo agora</button>
+            <button class="btn btn-danger" id="btn-reset">Zerar histórico</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Risco da carteira</h2>
+            <span class="chip" id="risk-state">desligado</span>
+          </div>
+          <p class="hint">
+            Stop por operação foi medido e piora o resultado: nenhuma das 31 estratégias
+            aprovadas melhorou com qualquer stop puro. Estes controles agem sobre a carteira
+            inteira, onde não competem com a regra de saída de cada estratégia. Todos vêm
+            desligados.
+          </p>
+          <div class="form-grid form-grid-2">
+            <label class="field">
+              <span>Parar de abrir com queda de (%)</span>
+              <input id="in-maxdd" type="number" min="0" max="90" step="1" value="0">
+            </label>
+            <label class="field">
+              <span>Voltar a abrir ao recuperar para (%)</span>
+              <input id="in-resumedd" type="number" min="0" max="90" step="1" value="0">
+            </label>
+            <label class="field">
+              <span>Correlação máxima entre posições</span>
+              <input id="in-maxcorr" type="number" min="0" max="1" step="0.05" value="0">
+            </label>
+            <label class="field field-check">
+              <input id="in-volsize" type="checkbox">
+              <span>Ajustar tamanho pela volatilidade da moeda</span>
+            </label>
+            <div class="field field-action">
+              <button class="btn btn-primary" id="btn-save-risk">Salvar risco</button>
+            </div>
+          </div>
+          <p class="hint" id="risk-detail"></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Estratégias em operação</h2></div>
+          <div id="allocations-list" class="alloc-list"></div>
+          <p class="empty" id="allocations-empty">
+            Nenhuma. Vá ao Laboratório, rode a pesquisa e escolha as aprovadas.
+          </p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Catálogo de estratégias</h2></div>
+        <div id="catalog-list" class="catalog"></div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
