@@ -1,12 +1,13 @@
-# Hamsta
+# Pouch
 
 A multi-strategy crypto trading bot with a local web dashboard.
 
-The mascot is a hamster, and it is the honest description of the engine: it
-sits still for weeks, stuffs a position into its cheek when the price is wrong,
-and empties the pouch when the price is right. Seventeen allocations on 4h and
-1d candles do almost nothing almost all of the time, and the interface is built
-around making that stillness legible rather than alarming.
+The name is the hamster's cheek pouch, and the mascot is the honest description
+of the engine: it sits still for weeks, stuffs a position into its cheek when
+the price is wrong, and empties the pouch when the price is right. Seventeen
+allocations on 4h and 1d candles do almost nothing almost all of the time, and
+the interface is built around making that stillness legible rather than
+alarming.
 
 ## Objective
 
@@ -440,7 +441,17 @@ The sidebar has five views, and they are ordered by how often you need them.
    to it, what is left — because a single total hides the difference between
    money that is banked and money that can still evaporate. The estimated fees
    paid so far are shown underneath; they are already deducted from every other
-   number on the page. *Sinais agora* lists every allocation with the one
+   number on the page.
+
+   *Saldo livre*, in the top bar, is a different quantity and will normally
+   disagree with *Patrimônio*. Equity is the bot's own ledger: the configured
+   starting capital plus what this run's trades have done to it. The balance is
+   the exchange account's free quote asset — it carries whatever the account did
+   before the current history began, and it drops by the full order size while a
+   position is open, because that money is sitting in the coin. Equity keeps
+   counting the coin at its market price; the balance does not count it at all.
+
+   *Sinais agora* lists every allocation with the one
    comparison it is waiting on — the value measured on the last closed candle,
    the level it has to cross, and the distance between them — sorted so the
    closest to firing is at the top. Seventeen allocations on 4h and 1d candles
