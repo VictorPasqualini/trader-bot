@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
     bot.stop()
 
 
-app = FastAPI(title="Hodlster", version="1.0.0", docs_url="/api/docs", lifespan=lifespan)
+app = FastAPI(title="Hamsta", version="1.0.0", docs_url="/api/docs", lifespan=lifespan)
 
 
 @app.exception_handler(BinanceError)

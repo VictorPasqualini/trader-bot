@@ -1,13 +1,12 @@
-# Hodlster
+# Hamsta
 
 A multi-strategy crypto trading bot with a local web dashboard.
 
-The name is a hamster wearing a HODL sign, and the mascot is the honest
-description of the engine: it sits still for weeks, stuffs a position into its
-cheek when the price is wrong, and empties the pouch when the price is right.
-Seventeen allocations on 4h and 1d candles do almost nothing almost all of the
-time, and the interface is built around making that stillness legible rather
-than alarming.
+The mascot is a hamster, and it is the honest description of the engine: it
+sits still for weeks, stuffs a position into its cheek when the price is wrong,
+and empties the pouch when the price is right. Seventeen allocations on 4h and
+1d candles do almost nothing almost all of the time, and the interface is built
+around making that stillness legible rather than alarming.
 
 ## Objective
 

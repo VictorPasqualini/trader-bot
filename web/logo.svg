@@ -1,18 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Hodlster">
-  <title>Hodlster</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Hamsta">
+  <title>Hamsta</title>
   <!-- The mascot is a hamster because that is what the bot does: it sits still
        for weeks, stuffs a position into its cheek when the price is wrong, and
        empties the pouch when the price is right. The dashed ring is the wheel,
        which is also the polling loop. Detail is kept low on purpose - this is
        rendered at 36 pixels in the sidebar and 16 in a browser tab. -->
   <defs>
-    <linearGradient id="hodlster-bg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="hamsta-bg" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#5b7cfa"/>
       <stop offset="1" stop-color="#8b5cf6"/>
     </linearGradient>
   </defs>
 
-  <rect width="48" height="48" rx="14" fill="url(#hodlster-bg)"/>
+  <rect width="48" height="48" rx="14" fill="url(#hamsta-bg)"/>
 
   <circle cx="24" cy="25" r="17.5" fill="none" stroke="#ffffff" stroke-opacity="0.26"
           stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round"/>
