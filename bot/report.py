@@ -415,6 +415,7 @@ def readiness() -> dict[str, Any]:
     evaluated = execution["evaluated"]
     matched = execution["matched"]
     diverged = evaluated - matched
+    unscored = execution["unscored"]
     slippage = execution["median_entry_slippage_bps"]
     tolerance = execution["tolerance_bps"]
 
@@ -439,8 +440,11 @@ def readiness() -> dict[str, Any]:
             "key": "parity",
             "label": f"Pelo menos {MIN_PARITY_TRADES} operações idênticas ao modelo",
             "ok": matched >= MIN_PARITY_TRADES and diverged == 0,
-            "detail": (f"{matched} de {evaluated} conferem"
+            "detail": ((f"{matched} de {evaluated} conferem"
+                        if evaluated else "nenhuma operação pontuada ainda")
                        + (f" — {diverged} divergem" if diverged else "")
+                       + (f" — {unscored} anterior(es) à guarda, fora da conta"
+                          if unscored else "")
                        + (f", escorregamento mediano {slippage:.0f} bps"
                           f" (tolerância {tolerance:.0f})"
                           if slippage is not None else "")),

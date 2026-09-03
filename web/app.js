@@ -925,16 +925,23 @@ async function loadCoverage() {
    pricing defect on the first one. */
 async function loadParity() {
   const { trades, totals } = await api('/parity?limit=50');
-  setText('#parity-summary', totals.evaluated
+  const aside = totals.unscored
+    ? ` · ${plural(totals.unscored, 'operação anterior', 'operações anteriores')}`
+      + ' à guarda, fora da conta'
+    : '';
+  setText('#parity-summary', (totals.evaluated
     ? `${totals.matched} de ${totals.evaluated} conferem`
       + (totals.median_entry_slippage_bps === null ? ''
         : ` · escorregamento mediano ${nf(totals.median_entry_slippage_bps, 0)} bps`
           + ` (tolerância ${nf(totals.tolerance_bps, 0)})`)
-    : '—');
+    : 'nenhuma operação pontuada ainda') + aside);
   $('#parity-empty').hidden = trades.length > 0;
   $('#parity-table').hidden = trades.length === 0;
   $('#parity-table tbody').innerHTML = trades.map((row) => {
     const good = row.verdict === 'igual ao modelo';
+    // A trade the engine is no longer judged on is grey, not red: it is history,
+    // not a failing check.
+    const mark = row.scored === false ? '' : (good ? 'ok' : 'bad');
     const slip = row.entry_slippage_bps;
     return `
     <tr>
@@ -950,7 +957,7 @@ async function loadParity() {
         ? '<span class="muted">aberta</span>' : pct(row.actual_return_pct)}</td>
       <td class="num ${cls(row.expected_return_pct)}">${row.expected_return_pct === undefined
         ? '—' : pct(row.expected_return_pct)}</td>
-      <td><span class="chip ${good ? 'ok' : 'bad'}">${row.verdict}</span></td>
+      <td><span class="chip ${mark}">${row.verdict}</span></td>
     </tr>`;
   }).join('');
 }

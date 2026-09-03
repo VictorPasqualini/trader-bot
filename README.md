@@ -186,6 +186,15 @@ price and realised return. This is the primary go-live evidence: it is pairwise,
 so a timing or pricing defect is visible immediately instead of being averaged
 into a win rate that would take dozens of trades to estimate.
 
+Parity scores the engine as it stands now, not as it used to be. Trades entered
+before `GUARD_LANDED` — the moment the stale-entry guard shipped — are listed
+for the record and excluded from every total, because a sample that still
+contains a fixed defect makes the current engine look worse than it is, and
+makes the next fix look like an improvement that no live trade caused. Set the
+kv key `parity_baseline` to move the line the next time the engine changes. The
+money those trades made or lost stays in equity, realised P&L and the drawdown
+gate; only the verdict is withheld.
+
 `bot/coverage.py` derives, from the per-tick equity snapshots, which candle
 closes the process was actually alive for. This exists because downtime is not
 neutral. The engine reads the signal on the last closed candle, so a bot that
@@ -194,6 +203,15 @@ stale and buys the top of it — measured at 25.8% and 27.8% worse than the
 modelled fill on the first two live trades. `MAX_ENTRY_LAG_BARS` in
 `bot/live.py` now refuses any entry more than one candle after the signal turned
 and logs the miss instead, so a gap costs a skipped trade rather than a bad one.
+
+This is also why the bot trades 4h and 1d rather than something faster. A round
+trip costs 0.30%; the median 15m candle moves 0.122% and the median 4h candle
+0.624%, so on the fast timeframe most candles cannot pay for the trade that
+crosses them. A full 15m sweep of 40 symbols does validate 59 combinations, but
+3000 candles of 15m is 31 days of history and only one of the top six survived a
+walk-forward on 180 days. On top of that, 15m closes 96 candles a day against 6
+at 4h, and with the entry guard in place every close the machine sleeps through
+is a skipped trade. Faster is worse here for two independent reasons.
 
 ### Portfolio risk controls
 

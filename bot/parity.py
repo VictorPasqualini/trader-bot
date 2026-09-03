@@ -11,6 +11,13 @@ of them: a systematic timing or pricing defect shows up in the first two or
 three trades, while estimating a win rate from live results alone would need
 dozens. Ten to fifteen matched trades is enough to trust the execution; the
 edge itself is established by walk-forward, on hundreds.
+
+Trades taken before the engine was fixed are shown but not scored. A parity
+sample exists to judge the engine as it stands now, so a defect that has since
+been closed would only make the current engine look worse than it is - and,
+worse, would let a later fix look like an improvement in the score when nothing
+about the live trades changed. The money those trades lost is real and stays in
+every P&L number; it is the verdict that is withheld, not the loss.
 """
 
 from __future__ import annotations
@@ -29,6 +36,12 @@ from .config import settings
 # whether it is zero.
 SLIPPAGE_TOLERANCE_BPS = (settings.fee_rate + settings.slippage_rate) * 10_000
 HISTORY_BARS = 1000
+
+# When the stale-entry guard landed (MAX_ENTRY_LAG_BARS in live.py). Entries
+# older than this were taken by an engine that no longer exists, so they are
+# listed for the record and left out of the totals. Overridable through the kv
+# table under "parity_baseline" for the next time the engine changes.
+GUARD_LANDED = "2026-09-03T01:37:43+00:00"
 
 
 def _series(symbol: str, interval: str, strategy: st.Strategy) -> tuple[Any, Any]:
@@ -68,6 +81,12 @@ def _bps(actual: float, expected: float) -> float:
     return round((actual / expected - 1) * 10_000, 1)
 
 
+def _baseline() -> datetime:
+    """The oldest entry this engine is willing to be judged on."""
+    return datetime.fromisoformat(
+        storage.get_state("parity_baseline", None) or GUARD_LANDED)
+
+
 def _compare(position: dict[str, Any]) -> dict[str, Any]:
     params = json.loads(position["params"] or "{}")
     strategy = st.build(position["strategy"], params)
@@ -88,7 +107,13 @@ def _compare(position: dict[str, Any]) -> dict[str, Any]:
         "notes": [],
     }
 
-    entry_bar = _bar_at(times, datetime.fromisoformat(position["entry_time"]))
+    entered = datetime.fromisoformat(position["entry_time"])
+    out["scored"] = entered >= _baseline()
+    if not out["scored"]:
+        out["notes"].append(
+            "entrada anterior à guarda de atraso: registrada, não pontuada")
+
+    entry_bar = _bar_at(times, entered)
     if entry_bar is None:
         out["notes"].append("histórico carregado não alcança a entrada")
         out["verdict"] = "sem histórico"
@@ -142,6 +167,8 @@ def _compare(position: dict[str, Any]) -> dict[str, Any]:
 
 def _verdict(row: dict[str, Any]) -> str:
     """One phrase for whether this trade matched its model."""
+    if not row.get("scored", True):
+        return "antes da guarda"
     late = max(row.get("entry_bars_late") or 0, row.get("exit_bars_late") or 0)
     slip = max(abs(row.get("entry_slippage_bps") or 0),
                abs(row.get("exit_slippage_bps") or 0))
@@ -168,16 +195,19 @@ def report(limit: int = 50) -> dict[str, Any]:
                 "verdict": "não avaliada", "notes": [str(exc)],
             })
 
-    matched = [r for r in rows if r.get("verdict") == "igual ao modelo"]
-    scored = [r for r in rows if r.get("return_gap_pct") is not None]
-    late = [r for r in rows if (r.get("entry_bars_late") or 0) > 0]
-    slips = sorted(abs(r["entry_slippage_bps"]) for r in rows
+    judged = [r for r in rows if r.get("scored", True)]
+    matched = [r for r in judged if r.get("verdict") == "igual ao modelo"]
+    scored = [r for r in judged if r.get("return_gap_pct") is not None]
+    late = [r for r in judged if (r.get("entry_bars_late") or 0) > 0]
+    slips = sorted(abs(r["entry_slippage_bps"]) for r in judged
                    if r.get("entry_slippage_bps") is not None)
 
     return {
         "trades": rows,
         "totals": {
-            "evaluated": len(rows),
+            "evaluated": len(judged),
+            "unscored": len(rows) - len(judged),
+            "baseline": _baseline().isoformat(),
             "matched": len(matched),
             "late": len(late),
             "median_entry_slippage_bps": (round(slips[len(slips) // 2], 1)

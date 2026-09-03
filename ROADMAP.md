@@ -847,6 +847,89 @@ the live results, as context rather than as a blocker. The checklist now fails
 for the right reason: not "we have not waited long enough" but "the machine was
 not there, and the trades it did take do not match the model".
 
+## Phase 14 — Judging the engine that exists ✅
+
+Phase 13 shipped the stale-entry guard and, in the same breath, made the only
+two live trades unjudgeable. Both were entered by the engine as it was before
+the guard: XRPUSDT eleven candles late, ARBUSDT thirteen. Scoring them against
+the model measures a bug that has already been fixed, and — worse — would let
+the next fix show up as an improvement in a number that no live trade caused.
+
+So parity now carries a baseline. `GUARD_LANDED` in `parity.py` is the moment
+the guard shipped; entries older than it are listed with the verdict `antes da
+guarda`, in grey, and left out of every total. The kv key `parity_baseline`
+overrides it the next time the engine changes in a way that invalidates the
+sample. The money those trades lost is untouched: it is in equity, in realised
+P&L, in the drawdown gate. Only the verdict is withheld.
+
+The open ARBUSDT position was closed manually at +0.81%, for the same reason —
+it was not a trade the book asked for, it was an artefact of downtime, and
+leaving it open meant its exit would also be scored against a model it never
+followed.
+
+INJUSDT left the book. At 50% profitable quarters and a +3.70% median it was
+the weakest allocation by both measures, and there is no shortage of
+replacements.
+
+### The fast-timeframe question, measured
+
+Phase 13 ruled out 1h on 324 stored candidates. That set covered five symbols,
+which is thin, and 15m had never been swept at all. Both gaps are now closed:
+40 symbols, 12 strategies, 15m and 1h, 3000 candles each.
+
+The first thing the data says is arithmetic. A round trip costs 0.30%, and a
+candle has to move further than that before a trade can pay for itself:
+
+| Timeframe | Median candle move | Candles bigger than the round trip | History in 3000 candles |
+| --- | --- | --- | --- |
+| 15m | 0.122% | 19.8% | 31 days |
+| 1h | 0.253% | 43.8% | 124 days |
+| 4h | 0.624% | 72.1% | 499 days |
+| 1d | 1.891% | 89.9% | 2574 days |
+
+The second thing it says is that a sweep on 15m validates plenty — 59 of 1421
+combinations — and that this means almost nothing, because 3000 candles of 15m
+is 31 days and the out-of-sample slice inside it is nine. Walking the top six
+candidates forward on 180 days of history, with windows scaled to the timeframe
+(60 days train, 15 days test), one survived. At 1h, with 120/30 windows, two of
+six survived.
+
+| Timeframe | Candidates walked forward | Held up |
+| --- | --- | --- |
+| 15m | 6 | 1 (NEARUSDT, 5/8 windows, +2.46% median, worst −14.71%) |
+| 1h | 6 | 2 (GRTUSDT +3.12%, TIAUSDT +1.88%) |
+
+An edge exists down there. It is thinner, it survives less often, and it comes
+with a decisive operational cost: 15m closes 96 candles a day against 6 at 4h,
+and the stale-entry guard now converts every missed close into a skipped trade.
+Measured coverage is 15.4%. A 15m book on this machine would skip almost
+everything it signalled — the timeframe is wrong for this deployment, not merely
+marginal for the market.
+
+### More coins on the timeframes that already work
+
+The same walk-forward that chose the book was run against the 20 highest-scoring
+validated candidates outside it, on 1d and 4h. Seventeen held up, several of them
+comfortably better than the allocation that was just dropped:
+
+| Symbol | Interval | Strategy | Profitable quarters | Median | Worst | Trades |
+| --- | --- | --- | --- | --- | --- | --- |
+| ALGOUSDT | 4h | rsi_reversion | 88% | +17.91% | −4.10% | 53 |
+| UNIUSDT | 1d | vwap_reversion | 62% | +15.75% | −5.99% | 7 |
+| CRVUSDT | 1d | bollinger_reversion | 88% | +15.59% | −22.76% | 18 |
+| GRTUSDT | 4h | rsi_reversion | 88% | +11.03% | 0.00% | 21 |
+| ETCUSDT | 4h | vwap_reversion | 62% | +10.87% | −6.60% | 33 |
+| DOTUSDT | 4h | bollinger_breakout | 75% | +8.85% | −25.12% | 44 |
+| SEIUSDT | 1d | vwap_reversion | 75% | +7.33% | −21.68% | 14 |
+
+This is the answer to "would more coins help": yes, and for a reason that has
+nothing to do with diversification. The two-week deadline needs ten matched
+parity trades, and the current ten allocations produce about 19 trades a month
+between them. Each addition is independently validated, so it adds trades
+without adding noise — which is exactly what dropping to 15m would not do.
+
+---
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -903,3 +986,6 @@ market-neutral comparison.
 | Dropped BTC from live allocations | Its validated candidates beat buy-and-hold by ~6pp over 3 years — indistinguishable from noise |
 | Readiness is a checklist, not a score | A score averages away the one missing condition, and the one missing condition is exactly what has to be known before risking real money |
 | Kill switch on, volatility sizing and correlation cap off | The kill switch only acts in a tail the measured expectation never contains; the other two change which trades get taken, which would stop the live run from being a test of what was measured |
+| Do not score live trades taken by an engine that no longer exists | A parity sample judges the engine as it stands; keeping the old trades in would let a later fix look like an improvement no live trade caused |
+| Do not trade 15m on this deployment | The edge is thinner and rarer, and 96 candle closes a day against measured 15.4% coverage means the guard would skip almost every signal |
+| Add coins before adding speed | Both raise trade count, but an independently validated allocation adds trades without adding noise |
