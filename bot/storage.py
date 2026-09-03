@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS orders (
     order_id   TEXT,
     status     TEXT NOT NULL,
     strategy   TEXT,
-    note       TEXT
+    note       TEXT,
+    position_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS equity_snapshots (
@@ -127,6 +128,7 @@ def connection() -> sqlite3.Connection:
 ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("positions", "entry_context", "TEXT"),
     ("positions", "exit_context", "TEXT"),
+    ("orders", "position_id", "INTEGER"),
 )
 
 

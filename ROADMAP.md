@@ -699,6 +699,77 @@ than by reading its code.
 
 ---
 
+## Phase 12 — Showing the money, and defining "ready" ✅
+
+Three questions had no answer anywhere in the interface: what did the bot buy
+and sell, how much has it made or lost, and how would anyone know when it is
+safe to point it at a real account. The first two are reporting gaps. The third
+is the actual goal of the project, and it had never been written down as
+something that could be checked.
+
+### The order ledger
+
+Positions were visible; orders were not. The `orders` table had been written to
+since the first version and read by nothing. That is a strange gap, because
+"what did it buy and sell" is the most literal possible question about a trading
+bot, and the position view cannot answer it: a position is a summary of two
+orders, and the summary is what you look at *after* you already trust the
+orders.
+
+`/api/orders` returns the raw ledger, newest first, joined to the position each
+order belongs to. Every row states the side, the coin, the strategy, the size,
+the fill price, the cash movement, the realised result where there is one, and
+the reason the bot acted. It is deliberately not grouped by coin — grouping
+answers "how is this coin doing", which the panel below it already answers.
+This one answers "what did the robot do, in order", which is what a bank
+statement answers, and a statement that reorders itself is not a statement.
+
+Linking a sale back to its position needed a column: `orders.position_id`. The
+buy is written before the position row exists, so the link is set immediately
+after the insert; the sale writes it directly. Without it a sale in the order
+book cannot say what it made.
+
+### Profit and loss, spelled out
+
+A single "total result" number hides the two things that make it, and they are
+not the same kind of money: one is banked and one can still evaporate. The
+dashboard now reads top to bottom as arithmetic — starting capital, what closed
+trades did to it, what open trades are currently doing to it, and what is left —
+with the estimated fees paid so far stated underneath, since fees are already
+inside every other number on the page and it is worth knowing how much the
+exchange took. The strategy breakdown gained a per-coin view next to the
+per-strategy one.
+
+### A go-live checklist that can fail
+
+The point of the whole exercise is a book good enough to trade real money. That
+needs a definition, and the definition has to be able to say no.
+
+`/api/readiness` compares what the walk-forward expects against what the live
+run has actually produced, and gates the answer on five conditions:
+
+| Gate | Threshold | Why that number |
+| --- | --- | --- |
+| Every allocation still passes walk-forward | 11 of 11 | A book is only as validated as its worst member |
+| Closed trades observed live | 30 | Below about 30, a win rate carries a confidence interval near ±18 points, which cannot separate a good book from a bad one |
+| Days running | 90 | One full walk-forward test window; less is not the same unit as the thing being compared against |
+| Realised result not worse than the expected worst quarter | −8.52% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
+| Observed drawdown within the configured limit | 20% | Roughly 2.3× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
+
+The expectation is scaled to the size the bot actually trades: each allocation's
+median quarter is divided by three and multiplied by its share of capital
+(500 of 10,000), which gives the book a combined expectation of **+1.69% per
+month across about 21 trades**, with a worst measured quarter of **−8.52%**.
+Against that, the live testnet run currently shows 1 closed trade over 4 days.
+The honest reading is that there is nothing to compare yet, and the checklist
+says so rather than producing a score that averages the gap away.
+
+The drawdown kill switch was turned on as part of this (20% halt, 10% resume).
+Volatility sizing and the correlation cap were deliberately left off: both
+change which trades get taken, so enabling them would make the live run stop
+being a test of the thing that was measured. The kill switch only acts in a tail
+the expectation never contains, so it costs nothing in comparability.
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -711,18 +782,15 @@ strategy performance *per regime*. This turns "this strategy works" into "this
 strategy works in trending markets and loses in chop", which is both more true
 and more actionable — it makes a regime-switched allocation possible.
 
-### 2. Forward-test tracking
+### 2. Forward-test tracking, continued
 
-The testnet run is currently trading, but nothing compares its realised
-performance against the backtest that justified it. Record the expected equity
-curve at allocation time and plot realised against expected on the dashboard.
-Divergence is the earliest available signal that an edge has decayed.
+Phase 12 compares realised totals against the walk-forward expectation. The
+missing half is the shape: record the expected equity curve at allocation time
+and plot realised against expected, so divergence is visible while it is
+developing rather than after the totals have moved. Divergence is the earliest
+available signal that an edge has decayed.
 
-### 3. Re-sweep the 24 results measured under the broken stop model
-
-Small, mechanical, and the only outstanding piece of the Phase 9 correction.
-
-### 4. Short and market-neutral
+### 3. Short and market-neutral
 
 Everything so far is spot-long-only, which means every strategy is structurally
 long crypto beta. That is why beating buy-and-hold is so hard: the benchmark is
@@ -753,3 +821,5 @@ market-neutral comparison.
 | Rank additions by steadiness, then cap correlation | The best candidate by return was 0.82 correlated with an existing allocation; buying it would have been buying the same exposure twice |
 | Every research run gets harvested, not just read | Run 4 sat unused for a phase because it was built to answer a question, and it contained four allocations that hold up |
 | Dropped BTC from live allocations | Its validated candidates beat buy-and-hold by ~6pp over 3 years — indistinguishable from noise |
+| Readiness is a checklist, not a score | A score averages away the one missing condition, and the one missing condition is exactly what has to be known before risking real money |
+| Kill switch on, volatility sizing and correlation cap off | The kill switch only acts in a tail the measured expectation never contains; the other two change which trades get taken, which would stop the live run from being a test of what was measured |

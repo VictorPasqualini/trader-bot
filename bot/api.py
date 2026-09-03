@@ -115,6 +115,13 @@ def trades(limit: int = 100) -> list[dict[str, Any]]:
     return report.trades(limit)
 
 
+@app.get("/api/orders")
+def orders(limit: int = 200) -> dict[str, Any]:
+    """Raw buy/sell ledger, with the running cash totals underneath it."""
+    rows = report.orders(limit)
+    return {"orders": rows, "totals": report.ledger_totals(rows)}
+
+
 @app.get("/api/trades/history")
 def trade_history(bars: int = report.HISTORY_BARS) -> list[dict[str, Any]]:
     """Simulated trade-by-trade history of the allocations currently running."""
@@ -139,6 +146,12 @@ def update_risk(request: RiskRequest) -> dict[str, Any]:
 def validation(refresh: bool = False) -> dict[str, Any]:
     """Walk-forward verdict on every allocation, on its deployed parameters."""
     return walkforward.validation_state(get_config()["allocations"], refresh=refresh)
+
+
+@app.get("/api/readiness")
+def readiness() -> dict[str, Any]:
+    """Gates that decide whether this book has earned a real-money account."""
+    return report.readiness()
 
 
 @app.get("/api/screen")

@@ -362,7 +362,17 @@ deployed, eleven positions at 500 USDT is 5500 of the 10 000 notional.
 4. Press **Ligar robô**. Every cycle it reads the last *closed* candle, applies
    the strategy, and buys or sells accordingly.
 5. **Painel** shows equity, P&L, win rate, profit factor, drawdown and Sharpe.
-6. **Operações** groups every entry and exit by coin. Each row expands into the
+   The *Lucro e perda* panel spells out the arithmetic in order — starting
+   capital, what closed trades did to it, what open trades are currently doing
+   to it, what is left — because a single total hides the difference between
+   money that is banked and money that can still evaporate. The estimated fees
+   paid so far are shown underneath; they are already deducted from every other
+   number on the page.
+6. **Operações** opens with *Compras e vendas*, the raw order ledger: every buy
+   and every sell in the order they happened, with the cash movement, the
+   realised result where there is one, and the reason. It is not grouped,
+   because a statement that reorders itself is not a statement. Below it,
+   *Operações por moeda* groups every entry and exit by coin. Each row expands into the
    signal that opened the position and the one that closed it — the rule in
    words, the indicator values at that candle, the price paid, and the time
    between them. The card names the candle the rule fired on, which is not
@@ -371,9 +381,12 @@ deployed, eleven positions at 500 USDT is 5500 of the 10 000 notional.
    replays the same allocations over recent history, so the view is readable
    before the bot has closed its first trade; those rows are a simulation, not
    money made.
-7. **Validação** walks each live allocation across eight rolling quarters on its
-   deployed parameters, and shows the quarter-by-quarter table behind the
-   verdict. This is the number to trust — a single backtest total is not.
+7. **Validação** opens with *Pronto para conta real?*, a checklist that compares
+   what the walk-forward expects against what the live run has actually
+   produced, and can say no. Below it, the walk-forward itself walks each live
+   allocation across eight rolling quarters on its deployed parameters and shows
+   the quarter-by-quarter table behind the verdict. This is the number to trust
+   — a single backtest total is not.
 
 ## Terminal usage
 
@@ -425,6 +438,24 @@ The testnet exists precisely so that forward testing costs nothing.
 not flip it because a backtest looked good. Fees, slippage, liquidity and regime
 changes all bite harder in production than in simulation, and spot trading can
 lose money.
+
+The **Validação** view answers the question directly, and is designed to be able
+to say no. A backtest describes data the strategy was chosen against; only a
+forward run describes data nobody has seen. Five conditions have to hold:
+
+| Gate | Threshold | Why that number |
+| --- | --- | --- |
+| Every allocation still passes walk-forward | all of them | A book is only as validated as its worst member |
+| Closed trades observed live | 30 | Below about 30, a win rate carries a confidence interval near ±18 points, which cannot separate a good book from a bad one |
+| Days running | 90 | One full walk-forward test window; less is not the same unit as the thing it is compared against |
+| Realised result not worse than the expected worst quarter | −8.52% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
+| Observed drawdown within the configured limit | 20% | Roughly 2.3× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
+
+The expectation is scaled to the size actually traded — each allocation's median
+quarter divided by three, times its share of capital — which for the current
+book of 11 allocations at 500 of 10,000 comes to **+1.69% per month across about
+21 trades**, against a worst measured quarter of **−8.52%**. Those are the
+numbers a real account should be expected to reproduce before it is funded.
 
 The API keys in `.env` are testnet-only. Never commit real keys — `.env` is
 already in `.gitignore`.

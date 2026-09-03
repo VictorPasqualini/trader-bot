@@ -10,6 +10,9 @@ from typing import Any
 
 from . import research
 from . import storage
+from . import portfolio
+from . import walkforward
+from .config import settings
 from . import strategies as st
 from .exchange import INTERVAL_MS, exchange
 from .live import bot, get_config
@@ -81,7 +84,15 @@ def overview() -> dict[str, Any]:
     )
     max_dd, sharpe = _drawdown_and_sharpe([s["total_value"] for s in snapshots])
 
+    # Fees are already inside every realised number; this is only so the
+    # dashboard can say how much of the result the exchange took.
+    turnover = storage.query_one(
+        "SELECT COALESCE(SUM(quote), 0) AS total FROM orders")["total"]
+
     return {
+        "mode": config.get("mode", "testnet"),
+        "turnover": round(turnover, 2),
+        "fees_estimate": round(turnover * settings.fee_rate, 2),
         "start_capital": round(start, 2),
         "total_value": round(total, 2),
         "total_pnl": round(realised + unrealised, 2),
@@ -184,6 +195,61 @@ def trades(limit: int = 100) -> list[dict[str, Any]]:
     return rows
 
 
+def orders(limit: int = 200) -> list[dict[str, Any]]:
+    """Every buy and every sell, newest first, as a plain ledger.
+
+    The trade log answers "how did this position do"; this answers "what did the
+    bot actually send to the exchange, and when". They are different questions:
+    one position is two orders, and a sale is the only row that carries money
+    coming back. Each sell is joined to the position it closed so the ledger can
+    state the result of the round trip on the line where it was realised.
+    """
+    rows = storage.query(
+        "SELECT o.id, o.ts, o.symbol, o.side, o.qty, o.price, o.quote, o.order_id, "
+        "o.status, o.strategy, o.note, o.position_id, "
+        "p.entry_quote, p.entry_time, p.pnl, p.return_pct, p.interval "
+        "FROM orders o LEFT JOIN positions p ON p.id = o.position_id "
+        "ORDER BY o.ts DESC, o.id DESC LIMIT ?",
+        (limit,),
+    )
+    labels = {item["key"]: item["label"] for item in st.catalog()}
+    now = datetime.now(timezone.utc)
+
+    for row in rows:
+        row["strategy_label"] = labels.get(row["strategy"], row["strategy"])
+        row["is_buy"] = row["side"] == "BUY"
+        # Money in on a buy, money out on a sell: the ledger should read like a
+        # bank statement, so the sign is on the cash, not on the asset.
+        row["cash_delta"] = round(-row["quote"] if row["is_buy"] else row["quote"], 4)
+        row["fee_estimate"] = round(row["quote"] * settings.fee_rate, 4)
+        if row["is_buy"]:
+            row["pnl"] = None
+            row["return_pct"] = None
+        entered = _parse_time(row["entry_time"])
+        left = _parse_time(row["ts"])
+        row["duration_seconds"] = (
+            round((left - entered).total_seconds()) if entered and left and not row["is_buy"]
+            else None)
+        row["age_seconds"] = round((now - left).total_seconds()) if left else None
+    return rows
+
+
+def ledger_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Running cash view of the ledger: what went out, what came back."""
+    spent = sum(r["quote"] for r in rows if r["is_buy"])
+    received = sum(r["quote"] for r in rows if not r["is_buy"])
+    realised = sum(r["pnl"] or 0.0 for r in rows if not r["is_buy"])
+    return {
+        "orders": len(rows),
+        "buys": sum(1 for r in rows if r["is_buy"]),
+        "sells": sum(1 for r in rows if not r["is_buy"]),
+        "spent": round(spent, 2),
+        "received": round(received, 2),
+        "realised_pnl": round(realised, 2),
+        "fees_estimate": round(sum(r["fee_estimate"] for r in rows), 2),
+    }
+
+
 HISTORY_BARS = 900
 
 
@@ -275,6 +341,127 @@ def allocation_history(bars: int = HISTORY_BARS) -> list[dict[str, Any]]:
             "trades": list(reversed(rows)),
         })
     return out
+
+
+# How much live evidence is enough to stop guessing. Both numbers are chosen,
+# not derived, and the reasoning is the point: under about 30 closed trades a
+# win rate carries a confidence interval close to +/-18 points, which cannot
+# separate a good book from a bad one; and under 90 days there is not one full
+# walk-forward test window to compare against, so "realised" and "expected" are
+# not the same unit.
+MIN_LIVE_TRADES = 30
+MIN_LIVE_DAYS = 90
+
+
+def readiness() -> dict[str, Any]:
+    """Is this book ready to be trusted with real money?
+
+    Answers it as a set of gates rather than a score, because the interesting
+    part is which gate is missing. The forward test is the whole point: a
+    backtest says what a strategy did on data it was chosen against, and only
+    live trading says what it does on data nobody has seen.
+    """
+    config = get_config()
+    allocations = config.get("allocations", [])
+    quote = float(config.get("quote_per_trade", 200.0))
+    start = float(config.get("start_capital", 10_000.0))
+
+    state = walkforward.validation_state(allocations)
+    reports = state["reports"]
+    # The cache starts empty and fills on a background thread, so a fresh
+    # process has no expectation to compare against yet. Say that, rather than
+    # printing zeros that read like a measured result.
+    pending = not reports
+    per_symbol = {r["symbol"]: r for r in reports if r.get("window_count")}
+
+    # Expected rates, scaled from each walk-forward to the size the bot trades.
+    expected_trades_month, expected_return_month, worst_quarter = 0.0, 0.0, 0.0
+    for allocation in allocations:
+        found = per_symbol.get(allocation["symbol"])
+        if not found:
+            continue
+        days = found["window_count"] * found["test_days"]
+        expected_trades_month += found["total_trades"] / days * 30
+        share = quote / start
+        expected_return_month += found["median_return_pct"] / 3 * share
+        worst_quarter += found["worst_window_pct"] * share
+
+    closed = storage.query("SELECT * FROM positions WHERE status = 'closed'")
+    first = storage.query_one("SELECT MIN(ts) AS ts FROM orders")
+    started = _parse_time(first["ts"]) if first and first["ts"] else None
+    days_live = ((datetime.now(timezone.utc) - started).total_seconds() / 86400
+                 if started else 0.0)
+
+    snapshots = storage.query("SELECT total_value FROM equity_snapshots ORDER BY ts")
+    observed_dd, _ = _drawdown_and_sharpe([s["total_value"] for s in snapshots])
+    realised = sum(p["pnl"] or 0.0 for p in closed)
+
+    max_dd_limit = float(portfolio.settings_for(config)["max_drawdown_pct"] or 0.0)
+
+    failing = [r for r in reports if not r.get("passes")]
+    gates = [
+        {
+            "key": "validation",
+            "label": "Todas as estratégias passam no teste em janelas móveis",
+            "ok": bool(reports) and not failing,
+            "detail": ("calculando..." if pending else
+                       f"{len(reports) - len(failing)} de {len(reports)} aprovadas"
+                       + (f" — falham: {', '.join(r['symbol'] for r in failing)}"
+                          if failing else "")),
+        },
+        {
+            "key": "trades",
+            "label": f"Pelo menos {MIN_LIVE_TRADES} operações encerradas ao vivo",
+            "ok": len(closed) >= MIN_LIVE_TRADES,
+            "detail": f"{len(closed)} encerrada" + ("" if len(closed) == 1 else "s"),
+            "progress": min(len(closed) / MIN_LIVE_TRADES, 1.0),
+        },
+        {
+            "key": "time",
+            "label": f"Pelo menos {MIN_LIVE_DAYS} dias rodando",
+            "ok": days_live >= MIN_LIVE_DAYS,
+            "detail": f"{days_live:.0f} dias desde a primeira ordem" if started
+                      else "nenhuma ordem enviada ainda",
+            "progress": min(days_live / MIN_LIVE_DAYS, 1.0) if started else 0.0,
+        },
+        {
+            "key": "tracking",
+            # A book can be profitable and still be broken: what matters is
+            # whether it behaves like the thing that was measured.
+            "label": "Resultado realizado não pior que o pior trimestre esperado",
+            "ok": (not pending and len(closed) >= MIN_LIVE_TRADES
+                   and realised / start * 100 >= worst_quarter),
+            "detail": ("calculando..." if pending else
+                       f"realizado {realised / start * 100:+.2f}% do capital,"
+                       f" pior trimestre esperado {worst_quarter:+.2f}%"
+                       + ("" if len(closed) >= MIN_LIVE_TRADES
+                          else " — amostra ainda pequena demais para comparar")),
+        },
+        {
+            "key": "drawdown",
+            "label": "Rebaixamento observado dentro do limite configurado",
+            "ok": bool(max_dd_limit) and abs(observed_dd) <= max_dd_limit,
+            "detail": (f"observado {observed_dd:.2f}%, limite {max_dd_limit:.0f}%"
+                       if max_dd_limit else "trava de rebaixamento desligada"),
+        },
+    ]
+
+    return {
+        "ready": all(g["ok"] for g in gates),
+        "gates": gates,
+        "allocations": len(allocations),
+        "mode": config.get("mode", "testnet"),
+        "days_live": round(days_live, 1),
+        "closed_trades": len(closed),
+        "realised_pnl": round(realised, 2),
+        "observed_drawdown_pct": round(observed_dd, 2),
+        "pending": pending,
+        "expected_trades_per_month": None if pending else round(expected_trades_month, 1),
+        "expected_return_pct_month": None if pending else round(expected_return_month, 2),
+        "expected_worst_quarter_pct": None if pending else round(worst_quarter, 2),
+        "deployed": round(quote * len(allocations), 2),
+        "start_capital": round(start, 2),
+    }
 
 
 def breakdown() -> dict[str, list[dict[str, Any]]]:

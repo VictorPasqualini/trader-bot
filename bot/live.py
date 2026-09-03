@@ -328,12 +328,12 @@ class TraderBot:
                 storage.log_event("error", f"{symbol}: buy did not fill", order)
                 return None
 
-        storage.execute(
+        order_row = storage.execute(
             "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy, note)"
             " VALUES(?,?,?,?,?,?,?,?,?,?)",
             (_now(), symbol, "BUY", filled, fill_price, spent, order_id, status,
              allocation["strategy"], "entry"),
-        )
+        ).lastrowid
         cursor = storage.execute(
             "INSERT INTO positions(symbol, interval, strategy, params, risk, status, qty, "
             "entry_price, entry_time, entry_quote, mode, entry_context) "
@@ -344,6 +344,10 @@ class TraderBot:
              filled, fill_price, _now(), spent, config.get("mode", "testnet"),
              json.dumps(context) if context else None),
         )
+        # The order is written before the position exists, so the link back is
+        # set here. Without it a sale in the order book cannot say what it made.
+        storage.execute("UPDATE orders SET position_id=? WHERE id=?",
+                        (cursor.lastrowid, order_row))
         storage.log_event("trade", f"BUY {symbol} {filled:g} @ {fill_price:.6g}",
                           {"strategy": allocation["strategy"], "quote": round(spent, 2)})
         return {"action": "buy", "symbol": symbol, "qty": filled, "price": fill_price,
@@ -371,10 +375,10 @@ class TraderBot:
             order_id, status = str(order.get("orderId")), order.get("status", "FILLED")
 
         storage.execute(
-            "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy, note)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy,"
+            " note, position_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (_now(), symbol, "SELL", filled, fill_price, proceeds, order_id, status,
-             position["strategy"], reason),
+             position["strategy"], reason, position["id"]),
         )
         self._close_row(position, fill_price, proceeds, reason, context)
         pnl = proceeds - position["entry_quote"]

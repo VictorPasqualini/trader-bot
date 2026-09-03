@@ -535,3 +535,92 @@ table.compact th, table.compact td { padding: 5px 8px; font-size: 12px; }
 
 .field-check input { width: 16px; height: 16px; accent-color: var(--accent); }
 .field-check span { font-size: 12px; }
+
+/* ------------------------------------------------------- order ledger ---- */
+
+.ledger-totals {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin: 4px 0 16px;
+}
+
+.ltot {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.ltot-label { font-size: 12px; color: var(--muted); }
+.ltot-value { font-size: 20px; font-weight: 600; letter-spacing: -0.02em; }
+.ltot-sub { font-size: 11px; color: var(--muted); }
+
+/* Buy and sell have to be separable at a glance - it is the one column a
+   reader scans for rather than reads. */
+.side {
+  display: inline-block;
+  min-width: 68px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.side.buy { background: var(--pos-soft); color: var(--pos); }
+.side.sell { background: var(--neg-soft); color: var(--neg); }
+
+#ledger-table td { white-space: nowrap; }
+
+/* --- profit and loss waterfall --- */
+.waterfall { display: flex; flex-direction: column; }
+.wf-row {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 16px; padding: 12px 2px; border-bottom: 1px solid var(--border-soft);
+}
+.wf-row:last-of-type { border-bottom: 0; }
+.wf-total { border-top: 1px solid var(--border); margin-top: 4px; }
+.wf-text { display: flex; flex-direction: column; gap: 2px; }
+.wf-label { font-size: 13px; }
+.wf-total .wf-label { font-weight: 600; }
+.wf-sub { font-size: 11px; color: var(--muted); }
+.wf-value { font-size: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.wf-total .wf-value { font-size: 24px; }
+.wf-note { margin: 10px 0 0; font-size: 11px; color: var(--muted); }
+
+/* --- go-live checklist --- */
+.gates { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.gate {
+  display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px;
+  align-items: start; padding: 10px 2px; border-bottom: 1px solid var(--border-soft);
+}
+.gate:last-child { border-bottom: 0; }
+.gate-mark { color: var(--neg); font-size: 14px; line-height: 1.3; }
+.gate.ok .gate-mark { color: var(--pos); }
+.gate-text { display: flex; flex-direction: column; gap: 2px; }
+.gate-label { font-size: 13px; }
+.gate-detail { font-size: 11px; color: var(--muted); }
+.gate-bar {
+  grid-column: 2; height: 3px; border-radius: 2px;
+  background: var(--border-soft); overflow: hidden;
+}
+.gate-bar div { height: 100%; background: var(--accent); }
+.expect {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 20px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+.expect-col h3 {
+  margin: 0 0 8px; font-size: 11px; text-transform: uppercase;
+  letter-spacing: 0.08em; color: var(--muted); font-weight: 600;
+}
+.expect-row {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 12px; padding: 5px 0; font-size: 12px;
+}
+.expect-row span { color: var(--muted); }
+.expect-row strong { font-variant-numeric: tabular-nums; }

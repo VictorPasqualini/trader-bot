@@ -108,6 +108,14 @@
 
       <div class="panel">
         <div class="panel-head">
+          <h2>Lucro e perda</h2>
+          <span class="muted" id="pnl-mode">—</span>
+        </div>
+        <div class="waterfall" id="pnl-waterfall"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <h2>Curva de patrimônio</h2>
           <span class="muted" id="equity-range">—</span>
         </div>
@@ -139,7 +147,13 @@
         </div>
 
         <div class="panel">
-          <div class="panel-head"><h2>Desempenho por estratégia</h2></div>
+          <div class="panel-head">
+            <h2>De onde vem o resultado</h2>
+            <div class="seg" id="breakdown-toggle">
+              <button class="seg-btn is-on" data-group="by_strategy">Estratégia</button>
+              <button class="seg-btn" data-group="by_symbol">Moeda</button>
+            </div>
+          </div>
           <div id="breakdown-list" class="bar-list"></div>
           <p class="empty" id="breakdown-empty">Sem operações encerradas ainda.</p>
         </div>
@@ -235,6 +249,31 @@
     <section class="view" id="view-trades">
       <div class="panel">
         <div class="panel-head">
+          <h2>Compras e vendas</h2>
+          <span class="muted" id="ledger-count">—</span>
+        </div>
+        <p class="hint">
+          Tudo o que o robô mandou para a corretora, em ordem de tempo. Cada posição são
+          duas linhas: a compra que tira dinheiro do caixa e a venda que devolve. O
+          resultado aparece na linha da venda, que é onde ele de fato acontece.
+        </p>
+        <div class="ledger-totals" id="ledger-totals"></div>
+        <div class="table-wrap">
+          <table id="ledger-table">
+            <thead>
+              <tr><th>Quando</th><th>Lado</th><th>Moeda</th><th>Estratégia</th>
+                  <th class="num">Quantidade</th><th class="num">Preço</th>
+                  <th class="num">Valor</th><th class="num">Caixa</th>
+                  <th class="num">Resultado</th><th>Motivo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="ledger-empty">Nenhuma ordem enviada ainda.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <h2>Operações por moeda</h2>
           <div class="seg" id="trades-mode">
             <button class="seg-btn is-on" data-mode="live">Robô</button>
@@ -251,6 +290,21 @@
     <!-- ---------------------------------------------------------- SETTINGS -->
     <!-- --------------------------------------------------------- VALIDATION -->
     <section class="view" id="view-validation">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Pronto para conta real?</h2>
+          <span class="chip" id="readiness-verdict">—</span>
+        </div>
+        <p class="hint">
+          O teste em janelas móveis diz o que a estratégia fez em dados do passado.
+          Só a operação ao vivo diz o que ela faz em dados que ninguém viu. Enquanto
+          estes itens não estiverem todos verdes, o robô não tem histórico próprio
+          suficiente para justificar dinheiro real.
+        </p>
+        <div class="gates" id="readiness-gates"></div>
+        <div class="expect" id="readiness-expect"></div>
+      </div>
+
       <div class="panel">
         <div class="panel-head">
           <h2>Teste em janelas móveis</h2>

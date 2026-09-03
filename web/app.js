@@ -13,6 +13,8 @@ const state = {
   researchTimer: null,
   detailCurve: null,
   tradesMode: 'live',
+  breakdown: null,
+  breakdownGroup: 'by_strategy',
 };
 
 const VIEW_META = {
@@ -44,6 +46,7 @@ const money = (value, digits = 2) => `$${nf(value, digits)}`;
 const signed = (value, digits = 2) => `${value >= 0 ? '+' : ''}${nf(value, digits)}`;
 const pct = (value, digits = 2) => `${signed(value, digits)}%`;
 const cls = (value) => (value > 0 ? 'pos' : value < 0 ? 'neg' : '');
+const plural = (count, one, many) => `${count} ${count === 1 ? one : many}`;
 
 function dt(iso, withTime = true) {
   if (!iso) return '—';
@@ -217,10 +220,49 @@ async function loadDashboard() {
   setText('#kpi-dd', `${nf(overview.max_drawdown_pct, 2)}%`);
   setText('#kpi-sharpe', nf(overview.sharpe, 2));
 
+  renderPnl(overview);
   renderEquity(equity, overview);
   renderPositions(overview.positions);
-  renderBreakdown(breakdown.by_strategy);
+  state.breakdown = breakdown;
+  renderBreakdown(breakdown[state.breakdownGroup || 'by_strategy']);
   renderEvents(events);
+}
+
+/* The waterfall exists because a single "resultado total" number hides the two
+   things that make it, and they are not the same kind of money: one is banked
+   and one can still evaporate. Reading it top to bottom gives the whole
+   arithmetic - what was put in, what closed trades did to it, what open trades
+   are currently doing to it, and what is left. */
+function renderPnl(overview) {
+  setText('#pnl-mode', overview.mode === 'live'
+    ? 'CONTA REAL — dinheiro de verdade'
+    : 'conta de teste (testnet) — dinheiro fictício');
+  $('#pnl-mode').className = overview.mode === 'live' ? 'neg' : 'muted';
+
+  const rows = [
+    { label: 'Capital inicial', sub: 'ponto de partida',
+      value: money(overview.start_capital), tone: '' },
+    { label: 'Resultado realizado', tone: cls(overview.realised_pnl),
+      sub: `${plural(overview.closed_trades, 'operação encerrada', 'operações encerradas')} · ${overview.wins}G / ${overview.losses}P`,
+      value: signed(overview.realised_pnl) },
+    { label: 'Resultado em aberto', tone: cls(overview.unrealised_pnl),
+      sub: `${plural(overview.open_positions, 'posição', 'posições')} · ${money(overview.invested)} aplicados`,
+      value: signed(overview.unrealised_pnl) },
+    { label: 'Patrimônio agora', tone: cls(overview.total_pnl), total: true,
+      sub: `${pct(overview.total_return_pct)} sobre o capital inicial`,
+      value: money(overview.total_value) },
+  ];
+  $('#pnl-waterfall').innerHTML = rows.map((r) => `
+    <div class="wf-row${r.total ? ' wf-total' : ''}">
+      <div class="wf-text">
+        <span class="wf-label">${r.label}</span>
+        <span class="wf-sub">${r.sub}</span>
+      </div>
+      <strong class="wf-value ${r.tone}">${r.value}</strong>
+    </div>`).join('')
+    + `<p class="wf-note">Todos os valores já descontam taxas e escorregamento.
+       Taxas estimadas até agora: ${money(overview.fees_estimate)} sobre
+       ${money(overview.turnover)} negociados.</p>`;
 }
 
 function renderEquity(rows, overview) {
@@ -670,6 +712,51 @@ function groupBySymbol(rows) {
   return [...groups.values()];
 }
 
+/* The ledger is deliberately not grouped. Grouping answers "how is this coin
+   doing"; the panel above it already does that. This one answers "what did the
+   robot do, in order", which is the question a statement answers, and a
+   statement that reorders itself is not a statement. */
+async function loadLedger() {
+  const { orders, totals } = await api('/orders?limit=200');
+  const body = $('#ledger-table tbody');
+
+  $('#ledger-count').textContent = totals.orders
+    ? `${plural(totals.orders, 'ordem', 'ordens')} · ${plural(totals.buys, 'compra', 'compras')} · ${plural(totals.sells, 'venda', 'vendas')}`
+    : '—';
+  $('#ledger-empty').hidden = totals.orders > 0;
+  $('#ledger-table').hidden = totals.orders === 0;
+
+  const cards = [
+    ['Saiu do caixa', money(totals.spent), 'total das compras'],
+    ['Voltou ao caixa', money(totals.received), 'total das vendas'],
+    ['Resultado realizado', money(totals.realised_pnl), 'só de posições encerradas',
+      cls(totals.realised_pnl)],
+    ['Taxas estimadas', money(totals.fees_estimate), '0,1% por ordem'],
+  ];
+  $('#ledger-totals').innerHTML = cards.map(([label, value, sub, tone]) => `
+    <div class="ltot">
+      <span class="ltot-label">${label}</span>
+      <strong class="ltot-value ${tone || ''}">${value}</strong>
+      <span class="ltot-sub">${sub}</span>
+    </div>`).join('');
+
+  body.innerHTML = orders.map((row) => `
+    <tr>
+      <td>${dt(row.ts)}</td>
+      <td><span class="side ${row.is_buy ? 'buy' : 'sell'}">${row.is_buy ? 'COMPRA' : 'VENDA'}</span></td>
+      <td class="mono">${esc(row.symbol)}</td>
+      <td class="muted">${esc(row.strategy_label)}</td>
+      <td class="num mono">${num(row.qty)}</td>
+      <td class="num mono">${num(row.price)}</td>
+      <td class="num">${money(row.quote)}</td>
+      <td class="num ${cls(row.cash_delta)}">${signed(row.cash_delta)}</td>
+      <td class="num ${cls(row.pnl)}">${row.pnl == null ? '—'
+        : `${signed(row.pnl)} <span class="muted">${pct(row.return_pct)}</span>`}</td>
+      <td class="muted">${row.is_buy ? 'entrada' : esc(ruleText(row.note))}${row.duration_seconds
+        ? ` · ${dur(row.duration_seconds)}` : ''}</td>
+    </tr>`).join('');
+}
+
 async function loadTrades() {
   const mode = state.tradesMode;
   const box = $('#trades-groups');
@@ -812,6 +899,54 @@ function validationCard(report, index) {
   </div>`;
 }
 
+/* The go-live checklist. Deliberately a list of gates and not a score: a score
+   averages away the one missing thing, and the one missing thing is exactly
+   what the operator needs to know before risking real money. */
+async function loadReadiness() {
+  const data = await api('/readiness');
+  const verdict = $('#readiness-verdict');
+  verdict.textContent = data.ready ? 'sim, com ressalvas' : 'ainda não';
+  verdict.className = `chip ${data.ready ? 'ok' : 'bad'}`;
+
+  $('#readiness-gates').innerHTML = data.gates.map((gate) => `
+    <div class="gate ${gate.ok ? 'ok' : ''}">
+      <span class="gate-mark">${gate.ok ? '✓' : '○'}</span>
+      <div class="gate-text">
+        <span class="gate-label">${gate.label}</span>
+        <span class="gate-detail">${gate.detail}</span>
+      </div>
+      ${gate.progress === undefined ? '' : `
+        <div class="gate-bar"><div style="width:${Math.round(gate.progress * 100)}%"></div></div>`}
+    </div>`).join('');
+
+  const na = (value, suffix = '') => (value === null || value === undefined
+    ? '<span class="muted">calculando…</span>' : `${value}${suffix}`);
+  $('#readiness-expect').innerHTML = `
+    <div class="expect-col">
+      <h3>Esperado pelo teste histórico</h3>
+      <div class="expect-row"><span>Operações por mês</span>
+        <strong>${na(data.expected_trades_per_month)}</strong></div>
+      <div class="expect-row"><span>Resultado mensal</span>
+        <strong class="${cls(data.expected_return_pct_month)}">
+          ${data.expected_return_pct_month === null ? '—' : pct(data.expected_return_pct_month)}</strong></div>
+      <div class="expect-row"><span>Pior trimestre</span>
+        <strong class="neg">${data.expected_worst_quarter_pct === null ? '—'
+          : pct(data.expected_worst_quarter_pct)}</strong></div>
+      <div class="expect-row"><span>Capital exposto</span>
+        <strong>${money(data.deployed)} <span class="muted">de ${money(data.start_capital, 0)}</span></strong></div>
+    </div>
+    <div class="expect-col">
+      <h3>Obtido ao vivo (${data.mode === 'live' ? 'conta real' : 'testnet'})</h3>
+      <div class="expect-row"><span>Dias rodando</span><strong>${nf(data.days_live, 1)}</strong></div>
+      <div class="expect-row"><span>Operações encerradas</span>
+        <strong>${data.closed_trades}</strong></div>
+      <div class="expect-row"><span>Resultado realizado</span>
+        <strong class="${cls(data.realised_pnl)}">${signed(data.realised_pnl)}</strong></div>
+      <div class="expect-row"><span>Rebaixamento observado</span>
+        <strong class="${cls(data.observed_drawdown_pct)}">${nf(data.observed_drawdown_pct, 2)}%</strong></div>
+    </div>`;
+}
+
 async function loadValidation(refresh = false) {
   const state_ = await api(`/validation${refresh ? '?refresh=true' : ''}`);
   const label = { idle: 'nunca calculado', running: 'calculando…', done: '', error: 'erro' };
@@ -855,8 +990,8 @@ async function refresh() {
     await loadStatus();
     if (state.view === 'dashboard') await loadDashboard();
     else if (state.view === 'lab') await loadLab();
-    else if (state.view === 'trades') await loadTrades();
-    else if (state.view === 'validation') await loadValidation();
+    else if (state.view === 'trades') { await loadLedger(); await loadTrades(); }
+    else if (state.view === 'validation') { await loadReadiness(); await loadValidation(); }
     else if (state.view === 'settings') await loadSettings();
   } catch (error) {
     toast(error.message, 'error');
@@ -928,6 +1063,12 @@ $('#btn-research').addEventListener('click', async () => {
 });
 
 $('#chk-validated').addEventListener('change', loadLab);
+
+$$('#breakdown-toggle .seg-btn').forEach((button) => button.addEventListener('click', () => {
+  $$('#breakdown-toggle .seg-btn').forEach((other) => other.classList.toggle('is-on', other === button));
+  state.breakdownGroup = button.dataset.group;
+  if (state.breakdown) renderBreakdown(state.breakdown[state.breakdownGroup]);
+}));
 
 $$('#trades-mode .seg-btn').forEach((button) => button.addEventListener('click', () => {
   $$('#trades-mode .seg-btn').forEach((other) => other.classList.toggle('is-on', other === button));
