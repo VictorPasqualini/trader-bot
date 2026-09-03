@@ -11,6 +11,8 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import backtest as bt
+from . import coverage
+from . import parity
 from . import report, research, storage
 from . import portfolio, screening, walkforward
 from . import strategies as st
@@ -146,6 +148,18 @@ def update_risk(request: RiskRequest) -> dict[str, Any]:
 def validation(refresh: bool = False) -> dict[str, Any]:
     """Walk-forward verdict on every allocation, on its deployed parameters."""
     return walkforward.validation_state(get_config()["allocations"], refresh=refresh)
+
+
+@app.get("/api/parity")
+def parity_report(limit: int = 50) -> dict[str, Any]:
+    """Each live trade next to the trade the backtest would have made."""
+    return parity.report(limit)
+
+
+@app.get("/api/coverage")
+def coverage_report() -> dict[str, Any]:
+    """Which candle closes the bot was awake for, and which it slept through."""
+    return coverage.report()
 
 
 @app.get("/api/readiness")

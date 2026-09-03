@@ -247,6 +247,32 @@
 
     <!-- ------------------------------------------------------------ TRADES -->
     <section class="view" id="view-trades">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Conferência com o modelo</h2>
+          <span class="muted" id="parity-summary">-</span>
+        </div>
+        <p class="hint">
+          Cada operação ao vivo comparada com a operação que o backtest teria feito
+          nas mesmas velas: mesma vela de decisão, preço de entrada contra a abertura
+          seguinte, resultado contra o resultado modelado. Divergência sem explicação
+          é defeito de execução, e é o que decide se este robô pode operar dinheiro
+          de verdade.
+        </p>
+        <div class="table-wrap">
+          <table id="parity-table">
+            <thead>
+              <tr><th>Moeda</th><th>Entrada</th><th class="num">Pago</th>
+                  <th class="num">Modelo</th><th class="num">Diferença</th>
+                  <th class="num">Resultado</th><th class="num">Esperado</th>
+                  <th>Veredito</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="parity-empty">Nenhuma operação para conferir ainda.</p>
+      </div>
       <div class="panel">
         <div class="panel-head">
           <h2>Compras e vendas</h2>
@@ -303,6 +329,29 @@
         </p>
         <div class="gates" id="readiness-gates"></div>
         <div class="expect" id="readiness-expect"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Presença nos fechamentos de vela</h2>
+          <span class="muted" id="coverage-summary">-</span>
+        </div>
+        <p class="hint">
+          O robô só enxerga um sinal se estiver ligado na vela em que ele acontece.
+          Uma vela perdida não aparece em lugar nenhum: estratégia que nunca disparou
+          e estratégia que disparou sem ninguém ouvindo produzem o mesmo resultado
+          vazio. Esta tabela separa as duas.
+        </p>
+        <div class="table-wrap">
+          <table id="coverage-table">
+            <thead>
+              <tr><th>Timeframe</th><th class="num">Fechamentos</th><th class="num">Presente</th>
+                  <th class="num">Perdidos</th><th class="num">Cobertura</th>
+                  <th class="num">Atraso mediano</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="panel">

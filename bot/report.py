@@ -10,6 +10,8 @@ from typing import Any
 
 from . import research
 from . import storage
+from . import coverage
+from . import parity
 from . import portfolio
 from . import walkforward
 from .config import settings
@@ -348,9 +350,20 @@ def allocation_history(bars: int = HISTORY_BARS) -> list[dict[str, Any]]:
 # win rate carries a confidence interval close to +/-18 points, which cannot
 # separate a good book from a bad one; and under 90 days there is not one full
 # walk-forward test window to compare against, so "realised" and "expected" are
-# not the same unit.
+# not the same unit. These are the statistical-confirmation thresholds, and
+# they are reported rather than gated on - see below for why.
 MIN_LIVE_TRADES = 30
 MIN_LIVE_DAYS = 90
+
+# The gating thresholds. A live run is asked to prove execution, not to
+# re-establish the edge: the edge already has hundreds of walk-forward trades
+# behind it, and re-earning that evidence in real time would take a year. What
+# only a live run can show is whether the engine fills where the model assumed,
+# on the candle the model assumed, at the cost the model assumed - and a
+# systematic defect there shows up within a handful of matched trades, because
+# each one is compared against its own twin rather than pooled into an average.
+MIN_PARITY_TRADES = 10
+MIN_COVERAGE_PCT = 90.0
 
 
 def readiness() -> dict[str, Any]:
@@ -398,6 +411,19 @@ def readiness() -> dict[str, Any]:
 
     max_dd_limit = float(portfolio.settings_for(config)["max_drawdown_pct"] or 0.0)
 
+    execution = parity.report()["totals"]
+    evaluated = execution["evaluated"]
+    matched = execution["matched"]
+    diverged = evaluated - matched
+    slippage = execution["median_entry_slippage_bps"]
+    tolerance = execution["tolerance_bps"]
+
+    presence = coverage.report(allocations)
+    coverage_pct = presence["coverage_pct"]
+    total_closes = presence.get("closes", 0)
+    covered_closes = presence.get("covered", 0)
+    missed_closes = total_closes - covered_closes
+
     failing = [r for r in reports if not r.get("passes")]
     gates = [
         {
@@ -410,31 +436,39 @@ def readiness() -> dict[str, Any]:
                           if failing else "")),
         },
         {
-            "key": "trades",
-            "label": f"Pelo menos {MIN_LIVE_TRADES} operações encerradas ao vivo",
-            "ok": len(closed) >= MIN_LIVE_TRADES,
-            "detail": f"{len(closed)} encerrada" + ("" if len(closed) == 1 else "s"),
-            "progress": min(len(closed) / MIN_LIVE_TRADES, 1.0),
+            "key": "parity",
+            "label": f"Pelo menos {MIN_PARITY_TRADES} operações idênticas ao modelo",
+            "ok": matched >= MIN_PARITY_TRADES and diverged == 0,
+            "detail": (f"{matched} de {evaluated} conferem"
+                       + (f" — {diverged} divergem" if diverged else "")
+                       + (f", escorregamento mediano {slippage:.0f} bps"
+                          f" (tolerância {tolerance:.0f})"
+                          if slippage is not None else "")),
+            "progress": min(matched / MIN_PARITY_TRADES, 1.0),
         },
         {
-            "key": "time",
-            "label": f"Pelo menos {MIN_LIVE_DAYS} dias rodando",
-            "ok": days_live >= MIN_LIVE_DAYS,
-            "detail": f"{days_live:.0f} dias desde a primeira ordem" if started
-                      else "nenhuma ordem enviada ainda",
-            "progress": min(days_live / MIN_LIVE_DAYS, 1.0) if started else 0.0,
+            "key": "coverage",
+            # A signal the bot slept through is not a signal it declined. Below
+            # full coverage the live record is a sample of the strategy taken
+            # by an unreliable observer, and the missing part is not random:
+            # downtime clusters at night, which is not when markets pause.
+            "label": f"Presente em ao menos {MIN_COVERAGE_PCT:.0f}% dos fechamentos de vela",
+            "ok": coverage_pct >= MIN_COVERAGE_PCT,
+            "detail": (f"{coverage_pct:.1f}% — {covered_closes} de {total_closes}"
+                       f" fechamentos, {missed_closes} perdidos"),
+            "progress": min(coverage_pct / MIN_COVERAGE_PCT, 1.0),
         },
         {
             "key": "tracking",
             # A book can be profitable and still be broken: what matters is
             # whether it behaves like the thing that was measured.
             "label": "Resultado realizado não pior que o pior trimestre esperado",
-            "ok": (not pending and len(closed) >= MIN_LIVE_TRADES
+            "ok": (not pending and len(closed) >= MIN_PARITY_TRADES
                    and realised / start * 100 >= worst_quarter),
             "detail": ("calculando..." if pending else
                        f"realizado {realised / start * 100:+.2f}% do capital,"
                        f" pior trimestre esperado {worst_quarter:+.2f}%"
-                       + ("" if len(closed) >= MIN_LIVE_TRADES
+                       + ("" if len(closed) >= MIN_PARITY_TRADES
                           else " — amostra ainda pequena demais para comparar")),
         },
         {
@@ -456,6 +490,12 @@ def readiness() -> dict[str, Any]:
         "realised_pnl": round(realised, 2),
         "observed_drawdown_pct": round(observed_dd, 2),
         "pending": pending,
+        "parity": execution,
+        "coverage": {key: value for key, value in presence.items()
+                     if key != "intervals"},
+        "coverage_intervals": presence["intervals"],
+        "min_live_trades": MIN_LIVE_TRADES,
+        "min_live_days": MIN_LIVE_DAYS,
         "expected_trades_per_month": None if pending else round(expected_trades_month, 1),
         "expected_return_pct_month": None if pending else round(expected_return_month, 2),
         "expected_worst_quarter_pct": None if pending else round(worst_quarter, 2),

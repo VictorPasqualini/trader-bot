@@ -770,6 +770,83 @@ change which trades get taken, so enabling them would make the live run stop
 being a test of the thing that was measured. The kill switch only acts in a tail
 the expectation never contains, so it costs nothing in comparability.
 
+## Phase 13 — Two weeks instead of ninety days ✅
+
+The Phase 12 checklist asked for 30 closed trades and 90 days of running before
+real money. Both are defensible and both were unreachable: the owner cannot
+leave a machine on for three months and wanted a usable answer inside two weeks.
+The obvious move is to trade a faster timeframe. The stored research says no.
+
+| Timeframe | Trades per month per allocation | Median trade, after costs | Validated |
+| --- | --- | --- | --- |
+| 1d | 0.48 | +7.04% | 138 of 1620 |
+| 4h | 2.50 | +0.30% | 68 of 1764 |
+| 1h | 8.80 | **+0.01%** | **0 of 324** |
+
+At 1h the round trip costs 0.30% and the median strategy nets one basis point.
+The frequency is real and the edge is gone; not one of 324 candidates validated.
+Buying sample size at that price is buying noise.
+
+### The reframe
+
+The 30-trade threshold exists to establish that an edge is real. That evidence
+already exists, and it is much stronger than anything two weeks of live trading
+could produce: walk-forward puts each allocation through eight quarters and
+hundreds of trades. What a live run uniquely proves is something else — that the
+engine fills where the model assumed, on the candle the model assumed, at the
+cost the model assumed. That is an execution question, and execution defects are
+systematic, not statistical: they appear in the first trade and every trade
+after it.
+
+So the comparison is pairwise. Each live trade is matched against the trade the
+backtest would have made on the same candles: same decision bar, entry price
+against the following open, realised return against the modelled return. Ten to
+fifteen matched trades is enough. That fits in two weeks.
+
+### The coverage problem, measured
+
+Equity snapshots are written once per tick, which makes them an honest record of
+when the process was alive. Read against the candle grid, they say the bot has
+been present for **4 of 26 candle closes since it started — 15.4%**, with wall
+clock uptime of 9.7%.
+
+This matters more than a missed trade. A candle the bot slept through is
+invisible afterwards: a strategy that never fired and a strategy that fired
+while nobody was listening produce the same empty result. Coverage separates
+them, per timeframe, because a missed daily close costs six times a missed 4h
+close and one average would hide which is being lost.
+
+### What coverage found
+
+The first parity run flagged both live trades, and the second one was the
+interesting one:
+
+| Trade | Signal turned | Bot bought | Late by | Price paid vs model |
+| --- | --- | --- | --- | --- |
+| XRPUSDT 1d | 2026-08-19 | 2026-08-30 | 11 candles | +25.8% |
+| ARBUSDT 4h | 2026-08-31 16:00 | 2026-09-03 01:06 | 13 candles | +27.8% |
+
+XRP was the known pre-fix defect. ARB was bought *after* the transition-only fix
+and was still 13 candles late, because downtime defeats that fix: the stand-aside
+flag was recorded as flat before the machine went down, the signal turned long
+while it was off, and the first tick after waking saw a clean flat-to-long
+transition that was two days stale. The measured cost on XRP was −24.99
+percentage points against its own model.
+
+So downtime does not merely lose trades. It converts good entries into bad ones,
+which is worse than missing them, and it does so silently. The engine now
+refuses an entry more than one candle after the signal turned, records the miss
+as an event, and waits for the next clean transition. One candle is the
+tolerance because the model itself fills one bar after the decision.
+
+### Gates, revised
+
+`trades ≥ 30` and `days ≥ 90` were replaced by `matched parity trades ≥ 10` and
+`candle coverage ≥ 90%`; the statistical thresholds are still reported next to
+the live results, as context rather than as a blocker. The checklist now fails
+for the right reason: not "we have not waited long enough" but "the machine was
+not there, and the trades it did take do not match the model".
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -818,6 +895,9 @@ market-neutral comparison.
 | Kill switch blocks entries, never forces exits | Closing at the bottom is the behaviour the Phase 4 stop study measured as destructive |
 | Enter only on a signal transition, never mid-signal | Joining a run already in progress costs about half a point of expected return per candle and is a trade no backtest ever measured |
 | Every trade stores why it was made, at the moment it was made | Reconstructing a reason later gives the reason the code would give today, which is exactly the reason that cannot catch a bug in the code |
+| Gate on execution parity, not on live sample size | The edge already has hundreds of walk-forward trades behind it; what only a live run can show is whether the engine executes the model, and that shows up in a handful of paired trades |
+| Refuse an entry more than one candle after the signal turned | Downtime turns a clean transition into a stale one, and the bot cannot tell the difference on waking; ARBUSDT was bought 13 candles late at a 27.8% worse price with the transition fix already in place |
+| Do not trade 1h to manufacture sample size | 0 of 324 candidates validated and the median trade nets +0.01% after costs — the frequency is real and the edge is not |
 | Rank additions by steadiness, then cap correlation | The best candidate by return was 0.82 correlated with an existing allocation; buying it would have been buying the same exposure twice |
 | Every research run gets harvested, not just read | Run 4 sat unused for a phase because it was built to answer a question, and it contained four allocations that hold up |
 | Dropped BTC from live allocations | Its validated candidates beat buy-and-hold by ~6pp over 3 years — indistinguishable from noise |

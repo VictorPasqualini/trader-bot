@@ -175,6 +175,26 @@ validated slightly worse than its bottom half.
 The module is kept as a descriptive profiler, with that record in its docstring.
 Every strategy family is still swept on every symbol.
 
+### Execution parity and coverage
+
+Two reports exist to keep the live run comparable to the backtest that justified
+it, both in the dashboard and both readable through the API.
+
+`bot/parity.py` matches every live trade against the trade the backtest would
+have made on the same candles, and reports the difference in decision bar, fill
+price and realised return. This is the primary go-live evidence: it is pairwise,
+so a timing or pricing defect is visible immediately instead of being averaged
+into a win rate that would take dozens of trades to estimate.
+
+`bot/coverage.py` derives, from the per-tick equity snapshots, which candle
+closes the process was actually alive for. This exists because downtime is not
+neutral. The engine reads the signal on the last closed candle, so a bot that
+wakes up two days into a move sees a flat-to-long transition that is two days
+stale and buys the top of it — measured at 25.8% and 27.8% worse than the
+modelled fill on the first two live trades. `MAX_ENTRY_LAG_BARS` in
+`bot/live.py` now refuses any entry more than one candle after the signal turned
+and logs the miss instead, so a gap costs a skipped trade rather than a bad one.
+
 ### Portfolio risk controls
 
 Per-trade stops buy drawdown reduction with return and are destructive on mean
@@ -413,6 +433,8 @@ bot/
   screening.py    descriptive price-shape profiling (predicts nothing — see docstring)
   portfolio.py    book-level risk: kill switch, volatility sizing, correlation cap
   live.py         live trading engine
+  parity.py       every live trade against the trade the backtest would have made
+  coverage.py     which candle closes the bot was actually awake for
   report.py       dashboard aggregations
   storage.py      SQLite persistence
   api.py          FastAPI app
@@ -446,10 +468,14 @@ forward run describes data nobody has seen. Five conditions have to hold:
 | Gate | Threshold | Why that number |
 | --- | --- | --- |
 | Every allocation still passes walk-forward | all of them | A book is only as validated as its worst member |
-| Closed trades observed live | 30 | Below about 30, a win rate carries a confidence interval near ±18 points, which cannot separate a good book from a bad one |
-| Days running | 90 | One full walk-forward test window; less is not the same unit as the thing it is compared against |
+| Live trades matching their backtest twin | 10 | The edge is established by walk-forward, on hundreds of trades. What a live run uniquely proves is that the engine executes the model — same decision candle, fill against the following open, cost inside the assumption — and an execution defect is systematic, so it shows up in the first few paired trades rather than needing a statistical sample |
+| Candle closes the bot was awake for | 90% | A candle slept through is invisible afterwards: a strategy that never fired and a strategy that fired while nobody was listening leave the same empty record |
 | Realised result not worse than the expected worst quarter | −8.52% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
 | Observed drawdown within the configured limit | 20% | Roughly 2.3× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
+
+The statistical thresholds that a longer run would satisfy — 30 closed trades,
+90 days — are still shown next to the live results, as context rather than as a
+blocker.
 
 The expectation is scaled to the size actually traded — each allocation's median
 quarter divided by three, times its share of capital — which for the current

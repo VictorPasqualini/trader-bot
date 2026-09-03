@@ -899,6 +899,62 @@ function validationCard(report, index) {
   </div>`;
 }
 
+/* Coverage is reported per timeframe rather than as one number because a
+   missed daily close costs six times what a missed 4h close costs, and one
+   average would hide which of the two is actually being lost. */
+async function loadCoverage() {
+  const data = await api('/coverage');
+  setText('#coverage-summary', data.since
+    ? `${nf(data.coverage_pct, 1)}% dos fechamentos · ligado ${nf(data.uptime_pct, 1)}% do tempo`
+    : 'nenhum ciclo registrado ainda');
+  $('#coverage-table tbody').innerHTML = (data.intervals || []).map((row) => `
+    <tr>
+      <td class="mono">${row.interval}</td>
+      <td class="num">${row.closes}</td>
+      <td class="num">${row.covered}</td>
+      <td class="num ${row.missed ? 'neg' : ''}">${row.missed}</td>
+      <td class="num ${row.coverage_pct >= 90 ? 'pos' : 'neg'}">${nf(row.coverage_pct, 1)}%</td>
+      <td class="num">${row.median_delay_minutes === null ? '—'
+        : `${nf(row.median_delay_minutes, 0)} min`}</td>
+    </tr>`).join('');
+}
+
+/* Each row is one live trade against its own backtest twin. The comparison is
+   pairwise on purpose: pooling live results into an average would need dozens
+   of trades to say anything, while a twin comparison catches a timing or
+   pricing defect on the first one. */
+async function loadParity() {
+  const { trades, totals } = await api('/parity?limit=50');
+  setText('#parity-summary', totals.evaluated
+    ? `${totals.matched} de ${totals.evaluated} conferem`
+      + (totals.median_entry_slippage_bps === null ? ''
+        : ` · escorregamento mediano ${nf(totals.median_entry_slippage_bps, 0)} bps`
+          + ` (tolerância ${nf(totals.tolerance_bps, 0)})`)
+    : '—');
+  $('#parity-empty').hidden = trades.length > 0;
+  $('#parity-table').hidden = trades.length === 0;
+  $('#parity-table tbody').innerHTML = trades.map((row) => {
+    const good = row.verdict === 'igual ao modelo';
+    const slip = row.entry_slippage_bps;
+    return `
+    <tr>
+      <td class="mono">${row.symbol} <span class="muted">${row.interval || ''}</span></td>
+      <td>${dt(row.entry_time)}${row.entry_bars_late
+        ? ` <span class="muted">(${plural(row.entry_bars_late, 'vela', 'velas')} depois)</span>` : ''}</td>
+      <td class="num mono">${row.actual_entry_price === undefined ? '—' : nf(row.actual_entry_price, 4)}</td>
+      <td class="num mono">${row.expected_entry_price === undefined || row.expected_entry_price === null
+        ? '—' : nf(row.expected_entry_price, 4)}</td>
+      <td class="num ${slip === undefined ? '' : cls(-slip)}">${slip === undefined
+        ? '—' : `${signed(slip, 0)} bps`}</td>
+      <td class="num ${cls(row.actual_return_pct)}">${row.actual_return_pct === null
+        ? '<span class="muted">aberta</span>' : pct(row.actual_return_pct)}</td>
+      <td class="num ${cls(row.expected_return_pct)}">${row.expected_return_pct === undefined
+        ? '—' : pct(row.expected_return_pct)}</td>
+      <td><span class="chip ${good ? 'ok' : 'bad'}">${row.verdict}</span></td>
+    </tr>`;
+  }).join('');
+}
+
 /* The go-live checklist. Deliberately a list of gates and not a score: a score
    averages away the one missing thing, and the one missing thing is exactly
    what the operator needs to know before risking real money. */
@@ -990,8 +1046,8 @@ async function refresh() {
     await loadStatus();
     if (state.view === 'dashboard') await loadDashboard();
     else if (state.view === 'lab') await loadLab();
-    else if (state.view === 'trades') { await loadLedger(); await loadTrades(); }
-    else if (state.view === 'validation') { await loadReadiness(); await loadValidation(); }
+    else if (state.view === 'trades') { await loadParity(); await loadLedger(); await loadTrades(); }
+    else if (state.view === 'validation') { await loadReadiness(); await loadCoverage(); await loadValidation(); }
     else if (state.view === 'settings') await loadSettings();
   } catch (error) {
     toast(error.message, 'error');

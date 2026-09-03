@@ -38,6 +38,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "risk_controls": dict(portfolio.DEFAULTS),
 }
 
+# How many candles may pass between the signal turning long and the bot buying.
+# The backtest decides on a closed candle and fills at the next open, so a bot
+# that is awake sees a lag of zero. Anything larger means it was asleep while
+# the move started, and the entry it is about to take is not the entry that was
+# measured: joining a run in progress costs roughly half a point of expected
+# return per candle, and the whole run is priced in by then.
+MAX_ENTRY_LAG_BARS = 1
+
 
 def get_config() -> dict[str, Any]:
     return {**DEFAULT_CONFIG, **(storage.get_state("bot_config") or {})}
@@ -190,6 +198,21 @@ class TraderBot:
         if want_long:
             if storage.get_state(key):
                 return None
+            lag = self._bars_since_turn(signal)
+            if lag > MAX_ENTRY_LAG_BARS:
+                # The machine was off while this signal started. Take the miss
+                # rather than the bad fill, and record it so the trade log can
+                # tell "the strategy never fired" apart from "the strategy
+                # fired while nobody was listening" - the two look identical
+                # afterwards and mean opposite things.
+                storage.set_state(key, True)
+                storage.log_event(
+                    "warning",
+                    f"{symbol}: entrada perdida, sinal virou há {lag} velas"
+                    f" de {interval} e o robô estava fora",
+                    {"symbol": symbol, "interval": interval, "bars_late": lag,
+                     "strategy": allocation["strategy"], "kind": "missed_entry"})
+                return None
             if len(open_positions) >= int(config.get("max_positions", 3)):
                 return None
             if halted:
@@ -206,6 +229,15 @@ class TraderBot:
                                     strategy.entry_rule, signal)
             return self._buy(allocation, price, config, context)
         return None
+
+    @staticmethod
+    def _bars_since_turn(signal: Any) -> int:
+        """Candles between the signal turning long and the latest closed one."""
+        wanted = signal.to_numpy(dtype=float) > 0
+        index = len(wanted) - 1
+        while index > 0 and wanted[index] and wanted[index - 1]:
+            index -= 1
+        return len(wanted) - 1 - index
 
     # ----------------------------------------------------------- explanation
 
