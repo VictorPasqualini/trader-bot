@@ -17,6 +17,7 @@ are different in every window has no stable edge; it has a curve fitter. The
 
 from __future__ import annotations
 
+import math
 import statistics
 import threading
 import time
@@ -35,6 +36,112 @@ from .exchange import INTERVAL_MS
 TRAIN_DAYS = 365
 TEST_DAYS = 90
 MIN_WINDOWS = 3
+
+
+# How far a window has to travel, measured in its own volatility, before the
+# move counts as a direction rather than noise. A fixed percentage cannot do
+# this job: +15% over a quarter is a strong trend in a coin that moves 20% a
+# quarter and is indistinguishable from noise in one that moves 60%. Dividing
+# the move by the window's own standard deviation asks the question that
+# actually matters to a strategy - was there a direction to catch - in units
+# that mean the same thing for every symbol.
+#
+# 0.75 is chosen so the three labels come out roughly balanced across the book;
+# at 1.0 almost everything reads as chop, and at 0.5 almost nothing does.
+REGIME_SNR = 0.75
+
+REGIME_LABELS = {"bull": "alta", "bear": "baixa", "chop": "lateral"}
+
+
+def window_volatility_pct(frame: pd.DataFrame) -> float:
+    """Standard deviation of the window's total return, in percent.
+
+    Per-bar volatility scaled by the square root of the bar count, which is how
+    dispersion accumulates under a random walk. This is the yardstick the move
+    is measured against, not a forecast of anything.
+    """
+    returns = frame["close"].pct_change().dropna()
+    if len(returns) < 3:
+        return 0.0
+    return float(returns.std() * math.sqrt(len(returns)) * 100)
+
+
+def label_regime(buy_hold_pct: float, volatility_pct: float) -> tuple[str, float]:
+    """(regime, signal-to-noise) for one test window.
+
+    Deliberately derived from buy-and-hold and volatility only - never from the
+    strategy's own result. A regime labelled by how the strategy did would make
+    "this strategy wins in trends" true by construction.
+    """
+    if volatility_pct <= 0:
+        return "chop", 0.0
+    snr = buy_hold_pct / volatility_pct
+    if snr >= REGIME_SNR:
+        return "bull", snr
+    if snr <= -REGIME_SNR:
+        return "bear", snr
+    return "chop", snr
+
+
+def regime_summary(windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per-regime performance, in the order alta / baixa / lateral.
+
+    This is the slice the aggregate hides. A strategy with eight windows, five
+    profitable and a positive median, can be a trend follower that made all of
+    it in two bull windows and bled through every flat one - which is a
+    different proposition from one that grinds out a small win in all three
+    conditions, and matters enormously when the next quarter is flat.
+    """
+    out = []
+    for key in ("bull", "bear", "chop"):
+        group = [w for w in windows if w.get("regime") == key]
+        if not group:
+            continue
+        returns = [w["return_pct"] for w in group]
+        alphas = [w["alpha_pct"] for w in group]
+        positive = sum(1 for value in returns if value > 0)
+        out.append({
+            "regime": key,
+            "label": REGIME_LABELS[key],
+            "windows": len(group),
+            "profitable_windows": positive,
+            "profitable_pct": round(positive / len(group) * 100, 1),
+            "median_return_pct": round(statistics.median(returns), 2),
+            "median_alpha_pct": round(statistics.median(alphas), 2),
+            "worst_pct": round(min(returns), 2),
+            "best_pct": round(max(returns), 2),
+            "median_buy_hold_pct": round(
+                statistics.median(w["buy_hold_pct"] for w in group), 2),
+            "trades": sum(w["trades"] for w in group),
+        })
+    return out
+
+
+def regime_verdict(regimes: list[dict[str, Any]]) -> str:
+    """One line on how the edge is distributed across conditions.
+
+    Two different failures are worth separating, because they call for opposite
+    responses. Losing money in a regime is a reason to stop trading it. Making
+    money in a regime while holding the coin would have made more is not - the
+    strategy is not broken there, it is simply not what it is for - but it does
+    mean the profit from that regime is not evidence of an edge, and reporting
+    it as one is how a bull market gets mistaken for a signal.
+    """
+    scored = [r for r in regimes if r["windows"] >= 2]
+    if len(scored) < 2:
+        return "poucas janelas por regime para separar"
+    losing = [r["label"] for r in scored if r["median_return_pct"] <= 0]
+    if losing:
+        if len(losing) == len(scored):
+            return "não ganha em nenhum regime com amostra suficiente"
+        return "perde em " + " e ".join(losing)
+    lagging = [r["label"] for r in scored if r["beat_buy_hold_pct"] < 50]
+    if not lagging:
+        return "ganha em todos os regimes medidos"
+    if len(lagging) == len(scored):
+        return "lucra em todo regime, mas segurar rende mais em todos"
+    return ("lucra em todos, mas fica atrás de segurar em "
+            + " e ".join(lagging))
 
 
 def bars_for(interval: str, days: int) -> int:
@@ -98,10 +205,16 @@ def walk_forward(
         except Exception:
             start += test_bars
             continue
+        volatility = window_volatility_pct(test)
+        regime, snr = label_regime(result.metrics["buy_hold_return_pct"], volatility)
         windows.append({
             "train_start": str(train["time"].iloc[0]),
             "test_start": str(test["time"].iloc[0]),
             "test_end": str(test["time"].iloc[-1]),
+            "volatility_pct": round(volatility, 2),
+            "signal_to_noise": round(snr, 2),
+            "regime": regime,
+            "regime_label": REGIME_LABELS[regime],
             "params": params,
             "risk": risk,
             "train_score": train_score,
@@ -159,6 +272,8 @@ def summarise(windows: list[dict[str, Any]]) -> dict[str, Any]:
         "total_trades": sum(w["trades"] for w in windows),
         "param_stability_pct": round(stability, 1),
     }
+    summary["regimes"] = regime_summary(windows)
+    summary["regime_verdict"] = regime_verdict(summary["regimes"])
     return summary
 
 
@@ -230,6 +345,8 @@ def _describe(report: dict[str, Any], allocation: dict[str, Any]) -> dict[str, A
         "worst_window_pct": report.get("worst_window_pct", 0.0),
         "worst_drawdown_pct": report.get("worst_drawdown_pct", 0.0),
         "total_trades": report.get("total_trades", 0),
+        "regimes": report.get("regimes", []),
+        "regime_verdict": report.get("regime_verdict", ""),
         "train_days": report["train_days"],
         "test_days": report["test_days"],
         "params": allocation.get("params"),
@@ -260,6 +377,57 @@ def validate_allocations(allocations: list[dict[str, Any]]) -> list[dict[str, An
             continue
         reports.append(_describe(report, allocation))
     return reports
+
+
+def book_regimes(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Pool every allocation's windows by regime, for the book as a whole.
+
+    Each window is one observation of "this allocation, in this condition", so
+    pooling across symbols is asking how often the *book* wins in a trend, a
+    decline or a flat market. Seventeen allocations of eight windows is 136
+    observations, which is enough to separate three buckets - one allocation's
+    eight is not, which is why the same slice is worth showing twice at two
+    different scales.
+
+    The number to look at is the flat bucket. Reversion and breakout rules both
+    tend to be profitable in a direction and both tend to bleed sideways, and a
+    book assembled from strategies that all quietly depend on movement has a
+    concentration that no correlation matrix shows.
+    """
+    pooled: dict[str, list[dict[str, Any]]] = {"bull": [], "bear": [], "chop": []}
+    for report in reports:
+        for window in report.get("windows") or []:
+            key = window.get("regime")
+            if key in pooled:
+                pooled[key].append(window)
+
+    rows, total = [], sum(len(group) for group in pooled.values())
+    for key, group in pooled.items():
+        if not group:
+            continue
+        returns = [w["return_pct"] for w in group]
+        alphas = [w["alpha_pct"] for w in group]
+        positive = sum(1 for value in returns if value > 0)
+        beat = sum(1 for value in alphas if value > 0)
+        rows.append({
+            "regime": key,
+            "label": REGIME_LABELS[key],
+            "windows": len(group),
+            "share_pct": round(len(group) / total * 100, 1) if total else 0.0,
+            "profitable_pct": round(positive / len(group) * 100, 1),
+            "beat_buy_hold_pct": round(beat / len(group) * 100, 1),
+            "median_return_pct": round(statistics.median(returns), 2),
+            "mean_return_pct": round(statistics.fmean(returns), 2),
+            "median_alpha_pct": round(statistics.median(alphas), 2),
+            "worst_pct": round(min(returns), 2),
+            "median_buy_hold_pct": round(
+                statistics.median(w["buy_hold_pct"] for w in group), 2),
+            "median_volatility_pct": round(
+                statistics.median(w.get("volatility_pct") or 0.0 for w in group), 2),
+            "trades": sum(w["trades"] for w in group),
+        })
+    rows.sort(key=lambda row: ("bull", "bear", "chop").index(row["regime"]))
+    return {"rows": rows, "windows": total, "verdict": regime_verdict(rows)}
 
 
 def validation_state(allocations: list[dict[str, Any]], *, refresh: bool = False) -> dict[str, Any]:

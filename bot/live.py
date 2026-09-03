@@ -329,6 +329,48 @@ class TraderBot:
 
     # ------------------------------------------------------------ execution
 
+    @staticmethod
+    def _can_fund(symbol: str, quote: float, config: dict[str, Any]) -> bool:
+        """Is there cash for this order, before it is sent?
+
+        Nothing else checks. Seventeen allocations at 500 USDT commit 8500 of a
+        10 000 account if they ever line up, and the overlap measurement says
+        the realistic peak is nearer 4500 - so today the book fits and this
+        never fires. It exists because the failure mode without it is bad out of
+        proportion to its likelihood: the exchange rejects the order, the
+        rejection is one warning line among many, and the strategy that was
+        refused funding looks in every report exactly like a strategy that
+        declined to trade. A book cannot be judged on trades it was never
+        allowed to take, and it would be judged on them silently.
+
+        The margin covers the fee, which is charged on top of the notional, plus
+        room for the price to move between this reading and the fill.
+        """
+        needed = quote * (1 + settings.fee_rate + settings.slippage_rate)
+        if config.get("mode") == "paper":
+            # Paper has no wallet, so the book is the wallet: the configured
+            # capital less whatever the open positions are already holding.
+            held = sum(p["entry_quote"] for p in TraderBot.open_positions())
+            free = float(config.get("start_capital", 10_000.0)) - held
+        else:
+            try:
+                free = exchange.free_balance(settings.quote_asset)
+            except BinanceError as exc:
+                # A balance the bot could not read is not a balance it may
+                # assume. Skipping the entry costs one trade; guessing costs a
+                # rejected order that looks like a declined signal.
+                storage.log_event("warn", f"{symbol}: could not read balance: {exc}")
+                return False
+        if free >= needed:
+            return True
+        storage.log_event(
+            "warn",
+            f"{symbol}: entrada recusada por falta de caixa —"
+            f" precisa de {needed:.2f} {settings.quote_asset}, livre {free:.2f}",
+            {"symbol": symbol, "needed": round(needed, 2), "free": round(free, 2)},
+        )
+        return False
+
     def _buy(self, allocation: dict[str, Any], price: float, config: dict[str, Any],
              context: dict[str, Any] | None = None) -> dict[str, Any] | None:
         symbol = allocation["symbol"]
@@ -345,16 +387,22 @@ class TraderBot:
             storage.log_event("warn", f"{symbol}: order size below exchange minimum")
             return None
 
+        if not self._can_fund(symbol, quote, config):
+            return None
+
         if config.get("mode") == "paper":
             # Charge the same fee + slippage the backtester assumes, so paper
             # results stay comparable to research results.
             fill_price = price * (1 + settings.fee_rate + settings.slippage_rate)
             filled, spent = qty, qty * fill_price
+            fee, fee_asset = qty * price * settings.fee_rate, settings.quote_asset
             order_id = None
             status = "PAPER"
         else:
             order = exchange.market_order(symbol, "BUY", qty)
-            fill_price, filled, spent = exchange.fill_summary(order)
+            fill = exchange.fill_summary(order)
+            fill_price, filled, spent = fill.price, fill.qty, fill.quote
+            fee, fee_asset = fill.fee, fill.fee_asset
             order_id = str(order.get("orderId"))
             status = order.get("status", "FILLED")
             if filled <= 0:
@@ -362,10 +410,10 @@ class TraderBot:
                 return None
 
         order_row = storage.execute(
-            "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy, note)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy,"
+            " note, fee, fee_asset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
             (_now(), symbol, "BUY", filled, fill_price, spent, order_id, status,
-             allocation["strategy"], "entry"),
+             allocation["strategy"], "entry", fee, fee_asset),
         ).lastrowid
         cursor = storage.execute(
             "INSERT INTO positions(symbol, interval, strategy, params, risk, status, qty, "
@@ -395,6 +443,7 @@ class TraderBot:
         if position["mode"] == "paper" or config.get("mode") == "paper":
             fill_price = price * (1 - settings.fee_rate - settings.slippage_rate)
             filled, proceeds = position["qty"], position["qty"] * fill_price
+            fee, fee_asset = position["qty"] * price * settings.fee_rate, settings.quote_asset
             order_id, status = None, "PAPER"
         else:
             available = exchange.free_balance(symbol.replace(settings.quote_asset, ""))
@@ -404,14 +453,16 @@ class TraderBot:
                 self._close_row(position, price, 0.0, "stale", context)
                 return None
             order = exchange.market_order(symbol, "SELL", qty)
-            fill_price, filled, proceeds = exchange.fill_summary(order)
+            fill = exchange.fill_summary(order)
+            fill_price, filled, proceeds = fill.price, fill.qty, fill.quote
+            fee, fee_asset = fill.fee, fill.fee_asset
             order_id, status = str(order.get("orderId")), order.get("status", "FILLED")
 
         storage.execute(
             "INSERT INTO orders(ts, symbol, side, qty, price, quote, order_id, status, strategy,"
-            " note, position_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+            " note, position_id, fee, fee_asset) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (_now(), symbol, "SELL", filled, fill_price, proceeds, order_id, status,
-             position["strategy"], reason, position["id"]),
+             position["strategy"], reason, position["id"], fee, fee_asset),
         )
         self._close_row(position, fill_price, proceeds, reason, context)
         pnl = proceeds - position["entry_quote"]

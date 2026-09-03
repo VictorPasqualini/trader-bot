@@ -13,6 +13,7 @@ from . import storage
 from . import coverage
 from . import parity
 from . import portfolio
+from . import tracking
 from . import walkforward
 from .config import settings
 from . import strategies as st
@@ -87,14 +88,24 @@ def overview() -> dict[str, Any]:
     max_dd, sharpe = _drawdown_and_sharpe([s["total_value"] for s in snapshots])
 
     # Fees are already inside every realised number; this is only so the
-    # dashboard can say how much of the result the exchange took.
+    # dashboard can say how much of the result the exchange took. Measured
+    # commission is preferred where the exchange reported one, and the
+    # configured rate fills in for orders that predate the measurement - the
+    # testnet reports zero, which is true there and is why the two have to be
+    # distinguishable rather than averaged.
     turnover = storage.query_one(
         "SELECT COALESCE(SUM(quote), 0) AS total FROM orders")["total"]
+    charged = storage.query_one(
+        "SELECT COALESCE(SUM(fee), 0) AS total, COUNT(fee) AS known,"
+        " COUNT(*) AS orders FROM orders")
 
     return {
         "mode": config.get("mode", "testnet"),
         "turnover": round(turnover, 2),
         "fees_estimate": round(turnover * settings.fee_rate, 2),
+        "fees_charged": round(charged["total"], 4),
+        "fees_measured_orders": charged["known"],
+        "fees_total_orders": charged["orders"],
         "start_capital": round(start, 2),
         "total_value": round(total, 2),
         "total_pnl": round(realised + unrealised, 2),
@@ -208,7 +219,7 @@ def orders(limit: int = 200) -> list[dict[str, Any]]:
     """
     rows = storage.query(
         "SELECT o.id, o.ts, o.symbol, o.side, o.qty, o.price, o.quote, o.order_id, "
-        "o.status, o.strategy, o.note, o.position_id, "
+        "o.status, o.strategy, o.note, o.position_id, o.fee, o.fee_asset, "
         "p.entry_quote, p.entry_time, p.pnl, p.return_pct, p.interval "
         "FROM orders o LEFT JOIN positions p ON p.id = o.position_id "
         "ORDER BY o.ts DESC, o.id DESC LIMIT ?",
@@ -224,6 +235,8 @@ def orders(limit: int = 200) -> list[dict[str, Any]]:
         # bank statement, so the sign is on the cash, not on the asset.
         row["cash_delta"] = round(-row["quote"] if row["is_buy"] else row["quote"], 4)
         row["fee_estimate"] = round(row["quote"] * settings.fee_rate, 4)
+        row["fee_charged"] = (None if row.get("fee") is None
+                              else round(row["fee"], 8))
         if row["is_buy"]:
             row["pnl"] = None
             row["return_pct"] = None
@@ -249,6 +262,8 @@ def ledger_totals(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "received": round(received, 2),
         "realised_pnl": round(realised, 2),
         "fees_estimate": round(sum(r["fee_estimate"] for r in rows), 2),
+        "fees_charged": round(sum(r["fee_charged"] or 0.0 for r in rows), 6),
+        "fees_measured_orders": sum(1 for r in rows if r["fee_charged"] is not None),
     }
 
 
@@ -366,6 +381,21 @@ def plural(count: int, one: str, many: str) -> str:
     return f"{count} {one if count == 1 else many}"
 
 
+def _tracking_detail(band: dict[str, Any], drift: dict[str, Any],
+                     closed: int) -> str:
+    """The tracking gate's one line, which has to survive having no baseline."""
+    if not band:
+        return drift.get("status") or "sem expectativa registrada"
+    parts = [f"realizado {band['realised_pct']:+.2f}% do capital,"
+             f" previsto {band['expected_pct']:+.2f}%"
+             f" (faixa {band['lower_pct']:+.2f}% a {band['upper_pct']:+.2f}%)"
+             f" em {band['days_live']:.0f} dias",
+             band["verdict"]]
+    if closed < MIN_LIVE_TRADES:
+        parts.append(f"{closed} de {MIN_LIVE_TRADES} operações encerradas")
+    return " — ".join(parts)
+
+
 # The checklist has two tiers, and they answer different questions.
 #
 # The execution tier asks whether the engine does what the model says. That is
@@ -444,6 +474,14 @@ def readiness() -> dict[str, Any]:
     slippage = execution["median_entry_slippage_bps"]
     tolerance = execution["tolerance_bps"]
 
+    # Freezing the expectation before comparing anything against it. Idempotent
+    # by book fingerprint, so this is a no-op on every poll but the first after
+    # the allocations change.
+    if not pending:
+        tracking.record(config, reports)
+    drift = tracking.report()
+    band = drift.get("current") or {}
+
     presence = coverage.report(allocations)
     coverage_pct = presence["coverage_pct"]
     total_closes = presence.get("closes", 0)
@@ -503,15 +541,16 @@ def readiness() -> dict[str, Any]:
         {
             "key": "tracking",
             # A book can be profitable and still be broken: what matters is
-            # whether it behaves like the thing that was measured.
-            "label": "Resultado realizado não pior que o pior trimestre esperado",
+            # whether it behaves like the thing that was measured. The
+            # comparison is against the band recorded when the book was
+            # deployed, scaled to the time actually elapsed - comparing a
+            # fortnight's result against a quarterly worst case passes anything.
+            "label": "Resultado realizado dentro da faixa prevista quando o livro entrou",
             "ok": (not pending and len(closed) >= MIN_LIVE_TRADES
-                   and realised / start * 100 >= worst_quarter),
+                   and bool(band) and band.get("realised_pct") is not None
+                   and band["realised_pct"] >= band["lower_pct"]),
             "detail": ("calculando..." if pending else
-                       f"realizado {realised / start * 100:+.2f}% do capital,"
-                       f" pior trimestre esperado {worst_quarter:+.2f}%"
-                       + ("" if len(closed) >= MIN_LIVE_TRADES
-                          else " — amostra ainda pequena demais para comparar")),
+                       _tracking_detail(band, drift, len(closed))),
         },
         {
             "key": "drawdown",
@@ -536,6 +575,7 @@ def readiness() -> dict[str, Any]:
         "coverage": {key: value for key, value in presence.items()
                      if key != "intervals"},
         "coverage_intervals": presence["intervals"],
+        "tracking": drift,
         "min_live_trades": MIN_LIVE_TRADES,
         "min_live_days": MIN_LIVE_DAYS,
         "expected_trades_per_month": None if pending else round(expected_trades_month, 1),

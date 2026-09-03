@@ -28,6 +28,59 @@ from .exchange import INTERVAL_MS
 PROMPT_MINUTES = 15
 
 
+# Closes missed before this moment are listed but left out of the percentage.
+#
+# The count is cumulative and the misses never expire, which makes the gate
+# arithmetic brutal: twenty-two misses on record means 220 closes have to
+# accumulate before 90% is even reachable, and every further day of downtime
+# pushes that target about ten days further out. A machine that spent its first
+# weeks as a development laptop can therefore never clear the gate, however
+# reliable the deployment it later moves to - which measures the wrong thing.
+# The gate exists to describe the presence of the deployment running now.
+#
+# So the baseline moves when the deployment changes, and only then. It is set
+# through set_baseline(), deliberately has no button in the interface, and the
+# closes it sets aside stay in the report under their own heading rather than
+# disappearing. Moving it because the number is unflattering is the one use
+# that defeats the purpose: the number would then measure nothing at all.
+#
+# Same device as the parity guard in bot/parity.py, for the same reason.
+BASELINE_KEY = "coverage_baseline"
+
+
+def baseline() -> datetime | None:
+    """The oldest close the deployment running now is willing to be judged on."""
+    value = storage.get_state(BASELINE_KEY, None)
+    return _parse(value) if value else None
+
+
+def set_baseline(moment: datetime | None = None) -> dict[str, Any]:
+    """Start counting coverage from now, or from `moment`.
+
+    Call this when the deployment actually changes - moving off a laptop onto a
+    host that stays up, for instance. What is being set aside is summarised into
+    the event log first, so the old record survives the reset.
+    """
+    now = datetime.now(timezone.utc)
+    moment = moment or now
+    previous = report()
+    storage.set_state(BASELINE_KEY, moment.isoformat(timespec="seconds"))
+    storage.log_event(
+        "info",
+        f"Marco de cobertura movido para {moment.isoformat(timespec='seconds')}",
+        {"previous_coverage_pct": previous.get("coverage_pct"),
+         "previous_missed": previous.get("closes", 0) - previous.get("covered", 0),
+         "previous_since": previous.get("since")},
+    )
+    return {"baseline": moment.isoformat(timespec="seconds"),
+            "set_aside": {
+                "coverage_pct": previous.get("coverage_pct"),
+                "closes": previous.get("closes", 0),
+                "missed": previous.get("closes", 0) - previous.get("covered", 0),
+                "since": previous.get("since"),
+            }}
+
+
 def _parse(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
@@ -103,7 +156,7 @@ def interval_coverage(interval: str, ticks: list[datetime],
 
 
 def report(allocations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
-    """Coverage per traded interval, since the first tick ever recorded."""
+    """Coverage per traded interval, since the baseline or the first tick."""
     ticks = tick_times()
     if not ticks:
         return {"since": None, "intervals": [], "coverage_pct": 0.0,
@@ -112,10 +165,25 @@ def report(allocations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     from .live import get_config
     allocations = allocations if allocations is not None else \
         get_config().get("allocations", [])
-    start, end = ticks[0], datetime.now(timezone.utc)
+    end = datetime.now(timezone.utc)
+    mark = baseline()
+    start = max(ticks[0], mark) if mark else ticks[0]
+    names = sorted({a["interval"] for a in allocations})
 
-    intervals = [interval_coverage(name, ticks, start, end)
-                 for name in sorted({a["interval"] for a in allocations})]
+    intervals = [interval_coverage(name, ticks, start, end) for name in names]
+
+    # What the baseline set aside, kept where it can still be read. A percentage
+    # that silently excludes half its own history is worse than the
+    # unflattering one it replaced.
+    excluded = None
+    if mark and ticks[0] < start:
+        before = [interval_coverage(name, ticks, ticks[0], start) for name in names]
+        excluded = {
+            "since": ticks[0].isoformat(),
+            "until": start.isoformat(),
+            "closes": sum(item["closes"] for item in before),
+            "missed": sum(item["missed"] for item in before),
+        }
 
     # Weighted by candle count, because a missed daily close costs six times
     # what a missed 4h close costs and averaging the percentages would hide it.
@@ -134,6 +202,8 @@ def report(allocations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
 
     return {
         "since": start.isoformat(),
+        "baseline": mark.isoformat() if mark else None,
+        "excluded": excluded,
         "intervals": intervals,
         "closes": total_closes,
         "covered": covered,

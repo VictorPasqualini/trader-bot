@@ -16,8 +16,9 @@ at, in order:
    percentage points of alpha over the validation window).
 2. The same set surviving a **walk-forward** test across several market regimes,
    not a single train/test split.
-3. A **forward test** on the testnet, running unattended for at least 90 days,
-   whose realised P&L tracks the backtest within a reasonable band.
+3. A **forward test** on the testnet, running unattended for at least 270 days
+   (revised from 90 in Phase 15), whose realised equity stays inside the band
+   predicted for it on the day the book shipped (Phase 16).
 4. Portfolio drawdown held under 30%, since a 40% drawdown is the point where
    most people abandon a system regardless of its expected value.
 
@@ -1038,25 +1039,175 @@ decision actually pending.
 
 ---
 
+## Phase 16 — Everything that can be done while the clock runs ✅
+
+The forward test needs 270 days and 100 closed trades, and neither can be
+hurried. The question this phase answered is what is worth building during a
+wait, and the answer came from arithmetic rather than preference.
+
+### The wait is not code-bound, it is uptime-bound
+
+Coverage is cumulative. It is the share of all candle closes since the run began
+that the process was alive for, not a rolling window, so a miss never expires.
+With 22 misses on record, 220 total closes have to accumulate before 90% is even
+reachable — about 28 days of unbroken running at roughly seven closes a day
+(six 4h plus one 1d). Every day the machine is off adds about seven misses and
+pushes the target another ten days out.
+
+That reframes the whole phase. The binding constraint is a hardware decision, so
+everything else genuinely runs in parallel, and the work was ranked by which
+items have a deadline rather than by which are largest.
+
+### The one item with a deadline
+
+Recording the expected equity curve had to happen first, because a prediction
+recorded after the outcome is not a prediction. A walk-forward run in month
+eight includes the eight months being judged; its "expectation" has absorbed
+them. Wait, and nine months pass with nothing frozen to compare against, and the
+comparison can never be reconstructed honestly.
+
+So `bot/tracking.py` snapshots the expectation into an `expectations` table the
+first time a book is seen, keyed by a sha1 of every symbol, interval, strategy
+and parameter set, and never recomputes it. The fingerprint makes recording
+idempotent and catches a parameter tweak — the change most likely to be made
+casually and least likely to be remembered.
+
+Three decisions inside it are worth recording:
+
+**A band, not a line.** The walk-forward says the median quarter is +8.9% and
+the worst is −11.9%. A realised −3% is unremarkable against that pair and
+alarming against the median alone. A single expected number cannot be falsified
+sensibly.
+
+**Square-root time scaling.** The band's width at `d` days is the
+median-to-worst distance times `sqrt(d/90)`. Linear scaling would claim the
+worst plausible first day is a ninetieth of the worst plausible quarter, which
+no market has ever done — it would flag every ordinary opening week as a
+failure.
+
+**Equity deltas, never levels.** The testnet account was seeded about 21 USDT
+above the configured capital and holds several hundred assets the faucet handed
+out. The absolute level is therefore off by a constant, and a constant cancels
+out of a difference. Book changes open a new segment that continues from where
+the previous one ended, so changing allocations does not reset the score.
+
+**Evidence:** at 4.2 days the band ran −4.09% to +4.93% around an expected
++0.42%; realised was −0.11%, inside it, verdict *cedo demais para julgar (4 de
+14 dias)*. Recording a second time produced no new row.
+
+### The fee that the testnet cannot show you
+
+The Spot Testnet charges zero commission. That means the entire nine-month
+forward test will report no fees, and the first account to reveal the error
+would be a real one — overstating profit by roughly 0.2% per round trip, on the
+first day it holds real money. A defect that is invisible for exactly as long as
+it is harmless and appears exactly when it is not.
+
+`fill_summary()` now nets the commission Binance reports on each fill: charged
+in the base asset it reduces the quantity received, charged in the quote asset
+it raises what a buy cost or lowers what a sell returned. The amount and its
+asset are stored on the order; reports use the measured figure where it exists
+and fall back to the configured rate elsewhere, and say which. This also makes
+testnet and live agree with paper mode, which has always charged the fee into
+the fill price.
+
+**Evidence:** verified against four synthetic fills — base-asset commission,
+quote-asset commission, zero commission, BNB commission. The four existing live
+orders report no measured fee and fall back to the estimate, as they should.
+
+### Refusing an entry the account cannot fund
+
+The exchange rejects an unaffordable order, but as a generic error. A book of
+seventeen allocations that all turn long in the same hour would produce a run of
+those, with nothing in the log to say the account had simply run out of quote
+asset. `_can_fund()` reads the free balance — or, in paper mode, the unspent
+share of configured capital — adds expected fee and slippage, and logs a refusal
+naming both numbers rather than letting the exchange answer for it.
+
+### Where the advantage actually is
+
+Every window now carries a regime label, from the signal-to-noise ratio of its
+own price: buy-and-hold return over realised volatility, thresholded at ±0.75.
+Computed from price only, never from the strategy's result — label a window by
+whether the strategy won and "this strategy wins in trends" is true by
+construction, whatever the strategy is.
+
+Pooled across all seventeen allocations, 136 window-observations:
+
+| Regime | Windows | Profitable | Beat holding | Median return | Median buy-and-hold |
+| --- | --- | --- | --- | --- | --- |
+| Bull | 31 | 87% | **6%** | +19.3% | +89.4% |
+| Bear | 46 | 52% | **100%** | +3.0% | −46.4% |
+| Chop | 59 | 80% | 80% | +9.4% | −1.2% |
+
+This is the most useful thing the validation has produced, and it is not what
+the aggregate verdict suggested. The book is not a way to make more money in a
+rally: it captures about a fifth of the move and loses to holding in fourteen
+windows out of fifteen. What it does is stay flat-to-positive through the third
+of history where holding lost 46%. The edge is downside, and the upside is a
+drag.
+
+The regime verdict was rewritten after seeing this. It had said *ganha em todos
+os regimes medidos*, which was true and useless — all three regimes are
+profitable. It now separates losing money in a regime (stop trading it) from
+making money while holding would have made more (not broken, but not evidence of
+an edge either, and reporting it as one is how a bull market gets mistaken for a
+signal).
+
+### Restarting the coverage count, once
+
+If 22 misses are permanent, is the count worth restarting? Yes — but only at a
+real change of deployment, and the mechanism has to make abuse visible.
+
+`POST /api/coverage/baseline` sets aside everything missed up to that moment,
+in the same shape as `parity_baseline`, which already excludes trades taken by
+an engine that no longer exists. The report keeps showing what was excluded and
+over what span; the previous figure goes into the event log. It has deliberately
+been given no button in the interface. Resetting it because the number is
+unflattering is the one use that defeats the purpose, because the number would
+then measure nothing at all.
+
+### Somewhere that does not turn off
+
+`deploy/` holds a systemd unit, an idempotent Ubuntu provisioning script, and a
+Windows scheduled-task stopgap. The survey of free hosting is in
+`deploy/README.md`; two findings are worth keeping here.
+
+**Binance answers US IP ranges with HTTP 451.** That eliminates Google Cloud's
+always-free `e2-micro`, which is only free in `us-west1`, `us-central1` and
+`us-east1`. The machine would run perfectly and never place a trade. Oracle
+Cloud's Always Free tier is the recommendation because its region is chosen
+freely — `sa-saopaulo-1` or `sa-vinhedo-1` — and it is free indefinitely rather
+than for a trial.
+
+**The dashboard binds to localhost and stays there.** It has no login, and the
+same interface that plots equity also starts the bot and places orders.
+Publishing port 8777 would hand those controls to anyone who scans the address;
+it is reached over an SSH tunnel until it has authentication.
+
+**Outcome:** the four parallel items shipped, coverage has an honest reset, and
+the deployment path off a desktop is written down. What remains is time.
+
 ## Next
 
 Ordered by expected value, highest first.
 
-### 1. Regime labelling
+### 1. Move the run to a host that does not sleep
 
-Every misleading result so far has been a regime artifact. Label each window
-(bull, bear, chop) from the buy-and-hold return and volatility, then report
-strategy performance *per regime*. This turns "this strategy works" into "this
-strategy works in trending markets and loses in chop", which is both more true
-and more actionable — it makes a regime-switched allocation possible.
+The only item that shortens the wait. Phase 16 wrote the deploy artifacts; what
+remains is provisioning the host, copying the database and keys, and calling
+`POST /api/coverage/baseline` once at the moment of the move — not before. Until
+that happens every outage is worth ten days of gate progress.
 
-### 2. Forward-test tracking, continued
+### 2. Act on the regime split
 
-Phase 12 compares realised totals against the walk-forward expectation. The
-missing half is the shape: record the expected equity curve at allocation time
-and plot realised against expected, so divergence is visible while it is
-developing rather than after the totals have moved. Divergence is the earliest
-available signal that an edge has decayed.
+Phase 16 measured that the book loses to holding in fourteen bull windows out of
+fifteen and beats it in every bear window. Two things follow, and neither is
+free: a regime-switched allocation that stands aside when the signal-to-noise is
+strongly positive, and an honest benchmark that is not buy-and-hold, since
+beating a long benchmark with a long-only book in a rally is not the thing this
+book is for. Both need the forward test to finish first — changing what gets
+traded now would end the test of what was measured.
 
 ### 3. Short and market-neutral
 
@@ -1101,3 +1252,14 @@ market-neutral comparison.
 | Every strategy declares one trigger pair | An indicator list is an audit trail; the decision is a single comparison, and only the comparison can be read at a glance across seventeen allocations |
 | Do not trade 15m on this deployment | The edge is thinner and rarer, and 96 candle closes a day against measured 15.4% coverage means the guard would skip almost every signal |
 | Add coins before adding speed | Both raise trade count, but an independently validated allocation adds trades without adding noise |
+| Freeze the expectation when the book ships, never recompute it | A walk-forward run today includes the period it would be judging, so a recomputed expectation absorbs its own outcome; that is a fit reported as a forecast |
+| Compare against a band, not a number | The walk-forward's own spread is median +8.9% to worst −11.9% per quarter; a single expected value cannot be falsified sensibly against that |
+| Scale the band by the square root of elapsed time | Dispersion accumulates that way; linear scaling would call every ordinary opening week a failure |
+| Measure realised as an equity delta, never a level | The testnet account starts above the configured capital and holds assets the bot never bought; a constant offset cancels out of a difference and not out of an absolute |
+| Net the commission the exchange reports, before the testnet can hide it | The Spot Testnet charges nothing, so the error is invisible for the whole forward test and first appears on a real account at ~0.2% of overstated profit per round trip |
+| Refuse an entry the account cannot fund, in our own log | The exchange rejects it anyway, but as a generic error; seventeen allocations turning long at once would produce a run of them with no record that the account was simply empty |
+| Label regimes from price, never from the strategy's result | Otherwise "this strategy wins in trends" is true by construction for any strategy |
+| Separate losing in a regime from lagging buy-and-hold in it | They call for opposite responses, and collapsing them let "profitable in all three regimes" hide that the book loses to holding in 14 of 15 bull windows |
+| Coverage baseline moves only at a real change of deployment | The exclusion is visible in the report and there is no button for it; resetting it for a nicer number would leave the number measuring nothing |
+| Host in a non-US region | Binance answers US IP ranges with HTTP 451, which rules out Google Cloud's always-free tier entirely |
+| The dashboard binds to localhost and is tunnelled, not published | It has no login, and the same interface that plots equity also places orders |

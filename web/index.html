@@ -355,6 +355,28 @@
 
       <div class="panel">
         <div class="panel-head">
+          <h2>Realizado contra o previsto</h2>
+          <span class="chip" id="tracking-verdict">—</span>
+        </div>
+        <p class="hint">
+          A previsão foi congelada no dia em que o livro entrou em operação e nunca
+          é recalculada — uma expectativa refeita depois do fato já contém o período
+          que deveria julgar. A faixa é o trimestre mediano e o pior trimestre da
+          validação, encolhidos pela raiz do tempo decorrido: no primeiro dia a
+          margem é estreita, num trimestre é inteira. Sair da faixa por baixo é o
+          primeiro sinal de que a vantagem sumiu, e aparece em semanas, não em
+          trimestres.
+        </p>
+        <div class="chart-wrap">
+          <canvas id="tracking-chart" height="220"></canvas>
+        </div>
+        <div class="legend" id="tracking-legend"></div>
+        <div class="expect" id="tracking-now"></div>
+        <p class="empty" id="tracking-empty" hidden>Nenhuma expectativa registrada ainda.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
           <h2>Presença nos fechamentos de vela</h2>
           <span class="muted" id="coverage-summary">-</span>
         </div>
@@ -364,6 +386,7 @@
           e estratégia que disparou sem ninguém ouvindo produzem o mesmo resultado
           vazio. Esta tabela separa as duas.
         </p>
+        <p class="hint" id="coverage-note" hidden></p>
         <div class="table-wrap">
           <table id="coverage-table">
             <thead>
@@ -374,6 +397,34 @@
             <tbody></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Onde a vantagem aparece</h2>
+          <span class="chip" id="regime-verdict">—</span>
+        </div>
+        <p class="hint">
+          Cada trimestre da validação é rotulado pelo que o preço fez, nunca pelo
+          que a estratégia fez — o rótulo vem de comprar-e-segurar dividido pela
+          volatilidade do próprio trimestre, então <b>alta</b> e <b>baixa</b> são
+          movimentos maiores que o próprio ruído e <b>lateral</b> é o resto. É a
+          fatia que o total esconde: um livro com mediana positiva pode ter feito
+          tudo em dois trimestres de alta e sangrado em todos os laterais, o que é
+          uma proposta bem diferente — e nenhuma matriz de correlação mostra isso.
+        </p>
+        <div class="table-wrap">
+          <table id="regime-table">
+            <thead>
+              <tr><th>Regime</th><th class="num">Trimestres</th><th class="num">Fatia</th>
+                  <th class="num">Lucrativos</th><th class="num">Retorno mediano</th>
+                  <th class="num">Alfa mediano</th><th class="num">Pior</th>
+                  <th class="num">Comprar e segurar</th><th class="num">Ops.</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="regime-empty">Sem janelas rotuladas ainda.</p>
       </div>
 
       <div class="panel">

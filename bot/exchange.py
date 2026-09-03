@@ -18,7 +18,7 @@ import threading
 import time
 import urllib.parse
 from decimal import Decimal
-from typing import Any
+from typing import Any, NamedTuple
 
 import httpx
 import pandas as pd
@@ -41,6 +41,21 @@ class BinanceError(RuntimeError):
     def __init__(self, message: str, code: int | None = None):
         super().__init__(message)
         self.code = code
+
+
+class Fill(NamedTuple):
+    """One order's effect on the account, net of what the exchange took.
+
+    ``price`` is the effective cost or proceeds per coin actually moved, which
+    is what makes ``quote / qty`` and the stored entry price agree and keeps a
+    live trade comparable to a backtested one - the backtest charges its fee
+    into the fill price too.
+    """
+    price: float
+    qty: float
+    quote: float
+    fee: float
+    fee_asset: str | None
 
 
 class Exchange:
@@ -202,11 +217,67 @@ class Exchange:
         })
 
     @staticmethod
-    def fill_summary(order: dict[str, Any]) -> tuple[float, float, float]:
-        """(avg_price, filled_qty, quote_amount) from an order response."""
+    def fill_summary(order: dict[str, Any]) -> Fill:
+        """What the account actually gained and lost on one order.
+
+        ``executedQty`` and ``cummulativeQuoteQty`` are both gross: they are
+        what the trade matched, before the exchange takes its cut. Binance
+        charges a spot buy in the coin bought and a spot sell in the quote
+        asset, so a gross reading overstates the coins held after a buy and the
+        cash received after a sell - by about a tenth of a percent each way,
+        which is a fifth of a percent per round trip and is precisely the size
+        of the edge these strategies are being judged on.
+
+        The Spot Testnet charges nothing, so a gross reading is exactly right
+        there and stays exactly right for as long as the bot is only ever run
+        against the testnet. That is what makes this worth doing before the
+        switch rather than after: the defect is invisible in every number the
+        forward test will produce, and appears for the first time on the
+        account where it costs money.
+
+        Commission in a third asset (BNB, when the account is set up to pay
+        that way) cannot honestly be folded into either side, so it is reported
+        separately rather than silently dropped or wrongly netted.
+        """
         qty = float(order.get("executedQty") or 0)
         quote = float(order.get("cummulativeQuoteQty") or 0)
-        return (quote / qty if qty else 0.0), qty, quote
+        symbol = str(order.get("symbol") or "")
+        side = str(order.get("side") or "BUY").upper()
+        base = (symbol[:-len(settings.quote_asset)]
+                if symbol.endswith(settings.quote_asset) else "")
+
+        base_fee = quote_fee = other_fee = 0.0
+        other_asset = None
+        for fill in order.get("fills") or []:
+            amount = float(fill.get("commission") or 0)
+            if not amount:
+                continue
+            asset = fill.get("commissionAsset")
+            if asset and asset == base:
+                base_fee += amount
+            elif asset == settings.quote_asset:
+                quote_fee += amount
+            else:
+                other_fee += amount
+                other_asset = asset
+
+        # Coins taken as commission never arrive, so they were never held.
+        qty = max(qty - base_fee, 0.0)
+        # A buy is debited the trade plus its fee; a sell is credited the trade
+        # minus its fee.
+        quote = quote + quote_fee if side == "BUY" else max(quote - quote_fee, 0.0)
+
+        fee_asset = None
+        fee = 0.0
+        if base_fee:
+            fee, fee_asset = base_fee, base
+        if quote_fee:
+            fee, fee_asset = quote_fee, settings.quote_asset
+        if other_fee:
+            fee, fee_asset = other_fee, other_asset
+
+        return Fill(price=quote / qty if qty else 0.0, qty=qty, quote=quote,
+                    fee=fee, fee_asset=fee_asset)
 
     def ping(self) -> dict[str, Any]:
         """Connectivity + credential check used by the dashboard header."""

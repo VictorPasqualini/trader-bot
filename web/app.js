@@ -74,7 +74,7 @@ function setText(id, value, className) {
 
 /* ------------------------------------------------------------------ charts */
 
-function drawChart(canvas, series, { fill = true, tipTarget = null } = {}) {
+function drawChart(canvas, series, { fill = true, tipTarget = null, format = money } = {}) {
   const dpr = window.devicePixelRatio || 1;
   const width = canvas.clientWidth || canvas.parentElement.clientWidth;
   const height = Number(canvas.getAttribute('height'));
@@ -88,13 +88,16 @@ function drawChart(canvas, series, { fill = true, tipTarget = null } = {}) {
 
   const points = series.flatMap((s) => s.points);
   if (points.length < 2) return null;
+  // A band's far edge is drawn but is not a point, so it has to be folded into
+  // the extent by hand or the shaded area gets clipped at the axis.
+  const edges = series.flatMap((s) => (s.bandTo || []).map((y) => ({ y })));
 
   const pad = { top: 14, right: 56, bottom: 22, left: 10 };
   const plotW = width - pad.left - pad.right;
   const plotH = height - pad.top - pad.bottom;
 
-  let min = Math.min(...points.map((p) => p.y));
-  let max = Math.max(...points.map((p) => p.y));
+  let min = Math.min(...points.concat(edges).map((p) => p.y));
+  let max = Math.max(...points.concat(edges).map((p) => p.y));
   const span = max - min || Math.abs(max) * 0.02 || 1;
   min -= span * 0.12;
   max += span * 0.12;
@@ -117,12 +120,29 @@ function drawChart(canvas, series, { fill = true, tipTarget = null } = {}) {
     ctx.fillStyle = '#5d6a80';
     ctx.textAlign = 'left';
     const value = max - ((max - min) / 4) * i;
-    ctx.fillText(nf(value, value > 1000 ? 0 : 2), pad.left + plotW + 8, y);
+    ctx.fillText(nf(value, Math.abs(value) > 1000 ? 0 : 2), pad.left + plotW + 8, y);
   }
+
+  // Bands go down first: they are context, and the lines that carry the answer
+  // have to sit on top of them.
+  series.filter((s) => s.bandTo).forEach((s) => {
+    const len = s.points.length;
+    if (len < 2) return;
+    ctx.beginPath();
+    s.points.forEach((p, i) => {
+      const x = xAt(i, len);
+      const y = yAt(p.y);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    for (let i = len - 1; i >= 0; i -= 1) ctx.lineTo(xAt(i, len), yAt(s.bandTo[i]));
+    ctx.closePath();
+    ctx.fillStyle = s.bandColor || 'rgba(91,124,250,0.13)';
+    ctx.fill();
+  });
 
   series.forEach((s) => {
     const len = s.points.length;
-    if (len < 2) return;
+    if (len < 2 || !s.color) return;
     ctx.lineWidth = s.width || 2;
     ctx.strokeStyle = s.color;
     if (s.dash) ctx.setLineDash(s.dash); else ctx.setLineDash([]);
@@ -156,11 +176,11 @@ function drawChart(canvas, series, { fill = true, tipTarget = null } = {}) {
   ctx.textAlign = 'right';
   ctx.fillText(dt(last.t, false), pad.left + plotW, height - 9);
 
-  if (tipTarget) attachTip(canvas, tipTarget, series[0], { xAt, yAt, pad, plotH });
+  if (tipTarget) attachTip(canvas, tipTarget, series[0], { xAt, yAt, pad, plotH }, format);
   return { xAt, yAt };
 }
 
-function attachTip(canvas, tip, series, geo) {
+function attachTip(canvas, tip, series, geo, format = money) {
   canvas.onmousemove = (event) => {
     const rect = canvas.getBoundingClientRect();
     const x = event.clientX - rect.left;
@@ -171,7 +191,7 @@ function attachTip(canvas, tip, series, geo) {
     tip.hidden = false;
     tip.style.left = `${geo.xAt(index, len)}px`;
     tip.style.top = `${geo.yAt(point.y)}px`;
-    tip.innerHTML = `<b>${money(point.y)}</b><span>${dt(point.t)}</span>`;
+    tip.innerHTML = `<b>${format(point.y)}</b><span>${dt(point.t)}</span>`;
   };
   canvas.onmouseleave = () => { tip.hidden = true; };
 }
@@ -321,8 +341,29 @@ function renderPnl(overview) {
       <strong class="wf-value ${r.tone}">${r.value}</strong>
     </div>`).join('')
     + `<p class="wf-note">Todos os valores já descontam taxas e escorregamento.
-       Taxas estimadas até agora: ${money(overview.fees_estimate)} sobre
-       ${money(overview.turnover)} negociados.</p>`;
+       ${feeNote(overview)}</p>`;
+}
+
+/* The testnet charges nothing, so "estimated fees" there is a number the
+   account never paid. Saying which of the two is being shown matters more than
+   the number: the estimate is what a real account would have cost, and telling
+   the operator that is the whole point of showing it before going live. */
+function feeNote(overview) {
+  const measured = overview.fees_measured_orders || 0;
+  const total = overview.fees_total_orders || 0;
+  const turnover = money(overview.turnover);
+  if (measured && overview.fees_charged > 0) {
+    return `Taxas cobradas: ${money(overview.fees_charged, 4)} sobre ${turnover}`
+      + ` negociados${measured < total
+        ? ` (${measured} de ${total} ordens com taxa medida)` : ''}.`;
+  }
+  if (measured) {
+    return `A corretora não cobrou taxa em nenhuma das ${measured} ordens medidas`
+      + ` — normal na testnet. Numa conta real as mesmas ${turnover} negociados`
+      + ` custariam cerca de ${money(overview.fees_estimate)}.`;
+  }
+  return `Taxas estimadas até agora: ${money(overview.fees_estimate)} sobre`
+    + ` ${turnover} negociados.`;
 }
 
 function renderEquity(rows, overview) {
@@ -797,7 +838,10 @@ async function loadLedger() {
     ['Voltou ao caixa', money(totals.received), 'total das vendas'],
     ['Resultado realizado', money(totals.realised_pnl), 'só de posições encerradas',
       cls(totals.realised_pnl)],
-    ['Taxas estimadas', money(totals.fees_estimate), '0,1% por ordem'],
+    (totals.fees_measured_orders && totals.fees_charged > 0
+      ? ['Taxas cobradas', money(totals.fees_charged, 4), 'medidas na corretora']
+      : ['Taxas estimadas', money(totals.fees_estimate),
+        totals.fees_measured_orders ? 'testnet não cobrou nada' : '0,1% por ordem']),
   ];
   $('#ledger-totals').innerHTML = cards.map(([label, value, sub, tone]) => `
     <div class="ltot">
@@ -924,10 +968,13 @@ async function loadSettings() {
 
 /* A verdict is only useful if the reader can see what it was based on, so each
    card carries its own per-window table rather than a single summary number. */
+const REGIME_TONE = { bull: 'pos', bear: 'neg', chop: 'muted' };
+
 function windowRow(w) {
   const period = `${w.test_start.slice(0, 10)} a ${w.test_end.slice(0, 10)}`;
   return `<tr>
     <td class="mono">${period}</td>
+    <td class="${REGIME_TONE[w.regime] || ''}">${esc(w.regime_label || '—')}</td>
     <td class="num ${cls(w.return_pct)}">${num(w.return_pct)}%</td>
     <td class="num muted">${num(w.buy_hold_pct)}%</td>
     <td class="num">${num(w.sharpe)}</td>
@@ -939,10 +986,17 @@ function windowRow(w) {
 function validationCard(report, index) {
   const tone = report.passes ? 'ok' : 'bad';
   const windows = (report.windows || []).map(windowRow).join('');
+  const regimes = (report.regimes || []).map((r) => `
+    <span class="legend-item"><b class="${REGIME_TONE[r.regime] || ''}">${esc(r.label)}</b>
+      ${r.profitable_windows}/${r.windows} no lucro,
+      mediana ${num(r.median_return_pct)}%</span>`).join('');
   const detail = windows ? `<table class="compact">
-      <thead><tr><th>Trimestre</th><th class="num">Retorno</th><th class="num">Comprar e segurar</th>
+      <thead><tr><th>Trimestre</th><th>Regime</th><th class="num">Retorno</th>
+      <th class="num">Comprar e segurar</th>
       <th class="num">Sharpe</th><th class="num">Queda máx.</th><th class="num">Ops.</th></tr></thead>
-      <tbody>${windows}</tbody></table>` : '<p class="muted">Sem janelas suficientes.</p>';
+      <tbody>${windows}</tbody></table>
+      ${regimes ? `<div class="legend">${regimes}</div>` : ''}`
+    : '<p class="muted">Sem janelas suficientes.</p>';
 
   return `<div class="vcard">
     <div class="vcard-head" data-vtoggle="${index}">
@@ -973,6 +1027,20 @@ async function loadCoverage() {
   setText('#coverage-summary', data.since
     ? `${nf(data.coverage_pct, 1)}% dos fechamentos · ligado ${nf(data.uptime_pct, 1)}% do tempo`
     : 'nenhum ciclo registrado ainda');
+  // Fechamentos perdidos nunca expiram, então a conta é cumulativa: um marco
+  // move o início da contagem quando a hospedagem muda. O que ficou de fora
+  // continua escrito aqui — uma porcentagem que esconde metade da própria
+  // história é pior que a porcentagem incômoda que ela substituiu.
+  const note = $('#coverage-note');
+  if (data.excluded) {
+    note.hidden = false;
+    note.innerHTML = `Contagem reiniciada em <b>${dt(data.baseline)}</b>:`
+      + ` ${plural(data.excluded.missed, 'fechamento perdido', 'fechamentos perdidos')}`
+      + ` de ${data.excluded.closes} antes dessa data ficaram fora da conta,`
+      + ` sob a hospedagem anterior.`;
+  } else if (note) {
+    note.hidden = true;
+  }
   $('#coverage-table tbody').innerHTML = (data.intervals || []).map((row) => `
     <tr>
       <td class="mono">${row.interval}</td>
@@ -1076,6 +1144,107 @@ async function loadReadiness() {
     </div>`;
 }
 
+/* The realised curve against the band that was written down before it existed.
+   Two separate honesty devices are at work here: the expectation is frozen at
+   deployment (a recomputed one would already contain the period it is judging),
+   and the band widens with the square root of elapsed time rather than
+   linearly, so a fortnight is not asked to land inside a quarterly tolerance. */
+async function loadTracking() {
+  const data = await api('/tracking');
+  const points = data.points || [];
+  const chip = $('#tracking-verdict');
+  const now = data.current;
+
+  $('#tracking-empty').hidden = points.length > 1;
+  $('#tracking-empty').textContent = data.status === 'ok'
+    ? 'Ainda sem pontos suficientes para traçar.' : `${data.status}.`;
+
+  if (!now || points.length < 2) {
+    chip.textContent = '—';
+    chip.className = 'chip';
+    $('#tracking-legend').innerHTML = '';
+    $('#tracking-now').innerHTML = '';
+    return;
+  }
+
+  const below = now.realised_pct < now.lower_pct;
+  chip.textContent = now.verdict;
+  chip.className = `chip ${below ? 'bad' : (now.inside_band ? 'ok' : '')}`;
+
+  const live = points.filter((p) => p.realised_pct !== null);
+  drawChart($('#tracking-chart'), [
+    {
+      points: points.map((p) => ({ t: p.time, y: p.upper_pct })),
+      bandTo: points.map((p) => p.lower_pct),
+      bandColor: 'rgba(91,124,250,0.13)',
+    },
+    {
+      points: points.map((p) => ({ t: p.time, y: p.expected_pct })),
+      color: 'rgba(139,148,178,0.9)', width: 1.5, dash: [5, 4], fill: false,
+    },
+    {
+      points: live.map((p) => ({ t: p.time, y: p.realised_pct })),
+      color: below ? '#f87171' : '#5b7cfa', width: 2, fill: false,
+    },
+  ], { fill: false, format: (value) => pct(value) });
+
+  $('#tracking-legend').innerHTML = `
+    <span class="legend-item"><i class="legend-swatch" style="border-top-color:${
+      below ? '#f87171' : '#5b7cfa'}"></i>realizado</span>
+    <span class="legend-item"><i class="legend-swatch" style="border-top-color:rgba(139,148,178,0.9);border-top-style:dashed"></i>trimestre mediano previsto</span>
+    <span class="legend-item"><i class="legend-swatch is-band" style="background:rgba(91,124,250,0.28)"></i>faixa até o pior trimestre previsto</span>`;
+
+  const base = (data.baselines || [])[data.baselines.length - 1] || {};
+  $('#tracking-now').innerHTML = `
+    <div class="expect-col">
+      <h3>Previsto quando o livro entrou</h3>
+      <div class="expect-row"><span>Congelado em</span>
+        <strong>${dt(base.recorded_at, false)}</strong></div>
+      <div class="expect-row"><span>Retorno mensal</span>
+        <strong class="${cls(base.return_pct_month)}">${pct(base.return_pct_month || 0)}</strong></div>
+      <div class="expect-row"><span>Pior trimestre</span>
+        <strong class="neg">${pct(base.worst_quarter_pct || 0)}</strong></div>
+      <div class="expect-row"><span>Revisões do livro</span>
+        <strong>${data.segments}</strong></div>
+    </div>
+    <div class="expect-col">
+      <h3>Onde está hoje</h3>
+      <div class="expect-row"><span>Realizado</span>
+        <strong class="${cls(now.realised_pct)}">${pct(now.realised_pct)}</strong></div>
+      <div class="expect-row"><span>Previsto para ${nf(now.days_live, 0)} dias</span>
+        <strong>${pct(now.expected_pct)}</strong></div>
+      <div class="expect-row"><span>Faixa hoje</span>
+        <strong>${pct(now.lower_pct)} a ${pct(now.upper_pct)}</strong></div>
+      <div class="expect-row"><span>Divergência</span>
+        <strong class="${cls(now.divergence_pct)}">${pct(now.divergence_pct)}</strong></div>
+    </div>`;
+}
+
+/* The book pooled by market condition. Shown next to the per-allocation slice
+   because the two answer different questions at different sample sizes: eight
+   windows cannot separate three buckets, and 136 can. */
+function renderRegimes(data) {
+  const rows = data.rows || [];
+  const chip = $('#regime-verdict');
+  chip.textContent = rows.length ? data.verdict : '—';
+  chip.className = `chip ${/^ganha/.test(data.verdict || '') ? 'ok'
+    : (/^n[aã]o ganha/.test(data.verdict || '') ? 'bad' : '')}`;
+  $('#regime-empty').hidden = rows.length > 0;
+  $('#regime-table').hidden = rows.length === 0;
+  $('#regime-table tbody').innerHTML = rows.map((r) => `
+    <tr>
+      <td><b class="${REGIME_TONE[r.regime] || ''}">${esc(r.label)}</b></td>
+      <td class="num">${r.windows}</td>
+      <td class="num muted">${nf(r.share_pct, 0)}%</td>
+      <td class="num ${r.profitable_pct >= 50 ? 'pos' : 'neg'}">${nf(r.profitable_pct, 0)}%</td>
+      <td class="num ${cls(r.median_return_pct)}">${pct(r.median_return_pct)}</td>
+      <td class="num ${cls(r.median_alpha_pct)}">${pct(r.median_alpha_pct)}</td>
+      <td class="num neg">${pct(r.worst_pct)}</td>
+      <td class="num muted">${pct(r.median_buy_hold_pct)}</td>
+      <td class="num">${r.trades}</td>
+    </tr>`).join('');
+}
+
 async function loadValidation(refresh = false) {
   const state_ = await api(`/validation${refresh ? '?refresh=true' : ''}`);
   const label = { idle: 'nunca calculado', running: 'calculando…', done: '', error: 'erro' };
@@ -1089,6 +1258,7 @@ async function loadValidation(refresh = false) {
     ? 'Calculando — cada estratégia percorre três anos de histórico.'
     : 'Nenhuma estratégia em operação para validar.';
   $('#validation-cards').innerHTML = reports.map(validationCard).join('');
+  renderRegimes(state_.regimes || { rows: [], verdict: '' });
 
   $$('[data-vtoggle]').forEach((head) => head.addEventListener('click', () => {
     const detail = $(`#vdet-${head.dataset.vtoggle}`);
@@ -1120,7 +1290,10 @@ async function refresh() {
     if (state.view === 'dashboard') await loadDashboard();
     else if (state.view === 'lab') await loadLab();
     else if (state.view === 'trades') { await loadParity(); await loadLedger(); await loadTrades(); }
-    else if (state.view === 'validation') { await loadReadiness(); await loadCoverage(); await loadValidation(); }
+    else if (state.view === 'validation') {
+      await loadReadiness(); await loadTracking();
+      await loadCoverage(); await loadValidation();
+    }
     else if (state.view === 'settings') await loadSettings();
   } catch (error) {
     toast(error.message, 'error');

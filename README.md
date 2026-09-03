@@ -131,6 +131,30 @@ The backtester is deliberately pessimistic:
   win rate. So a new allocation waits for its signal to drop and turn long
   again, at the cost of the run already in progress.
 
+Fees are read from the exchange rather than assumed. Every fill Binance returns
+carries a `commission` and the asset it was charged in, and `fill_summary()`
+nets it out of the fill before anything else sees it: a fee charged in the base
+asset reduces the quantity actually received, one charged in the quote asset
+raises what a buy cost or lowers what a sell returned. The measured amount is
+stored on the order, and reports fall back to the configured rate only for
+orders that predate the change.
+
+This is worth doing before it can cost anything, because the Spot Testnet
+charges zero commission. The whole nine-month forward test will therefore report
+no fees at all, and the error — roughly 0.2% of overstated profit per round trip
+— would appear for the first time on a real account, on the first day it holds
+real money. Netting it now also makes testnet and live agree with paper mode,
+which has always charged the fee into the fill price.
+
+Entries are also checked against available cash before they are sent. The
+exchange would reject an unaffordable order anyway, but it does so as a generic
+error, and a book of seventeen allocations that all turn long in the same hour
+would produce a run of them with nothing in the log to say the account had
+simply run out of quote asset. `_can_fund()` reads the free balance (or, in
+paper mode, the unspent share of the configured capital), adds the expected fee
+and slippage to the order, and if it does not fit, logs a refusal naming both
+numbers instead of letting the exchange answer for it.
+
 ### Walk-forward validation
 
 One train/test split tests one regime transition, and a strategy can clear it
@@ -162,6 +186,31 @@ python run.py walkforward XRPUSDT 1d bollinger_breakout --params '{"period": 20,
 
 The dashboard's **Validação** tab runs this across every live allocation and
 shows the per-quarter table behind each verdict.
+
+Each window is also labelled with the market it happened in, so the distribution
+can be read by condition rather than only in aggregate. The label comes from the
+signal-to-noise ratio of the window's own price — buy-and-hold return divided by
+realised volatility — thresholded at ±0.75 into bull, bear and chop. It is
+computed from price alone and never from the strategy's result, which matters:
+label a window by whether the strategy won and "this strategy wins in trends"
+becomes true by construction, whatever the strategy is. A window where the coin
+gained 30% while swinging 60% is chop that happened to end up, not a trend.
+
+Pooling all seventeen allocations gives 136 window-observations, and the split
+is the most useful thing the validation produces:
+
+| Regime | Windows | Profitable | Beat holding | Median return | Median buy-and-hold |
+| --- | --- | --- | --- | --- | --- |
+| Bull | 31 | 87% | **6%** | +19.3% | +89.4% |
+| Bear | 46 | 52% | **100%** | +3.0% | −46.4% |
+| Chop | 59 | 80% | 80% | +9.4% | −1.2% |
+
+The book is not a way to make more money in a rally — in a rally it captures
+about a fifth of the move and loses to holding in fourteen windows out of
+fifteen. What it does is stay flat-to-positive through the half of history where
+holding lost 46%. That is the entire edge, and it is worth knowing which one you
+own before a bull market makes the strategy look clever and a bear market makes
+it look broken.
 
 ### Symbol profiling
 
@@ -219,6 +268,59 @@ crosses them. A full 15m sweep of 40 symbols does validate 59 combinations, but
 walk-forward on 180 days. On top of that, 15m closes 96 candles a day against 6
 at 4h, and with the entry guard in place every close the machine sleeps through
 is a skipped trade. Faster is worse here for two independent reasons.
+
+Coverage is cumulative, not a rolling window, and that has a consequence worth
+stating plainly: a miss never expires. Twenty-two missed closes on record means
+220 closes have to accumulate before the 90% gate is even reachable — about a
+month of unbroken running at seven closes a day — and every further day off adds
+seven more misses and pushes the target another ten days out. Uptime, not code,
+is what decides when the forward test finishes.
+
+So coverage has a baseline, in the same shape as parity's and for the same
+reason. `POST /api/coverage/baseline` sets aside everything missed up to that
+moment; the report keeps showing what was excluded and when, and the previous
+figure goes into the event log. It exists for one event — the run moving to a
+host that does not sleep — and it is deliberately not wired to a button.
+Resetting it because the number is unflattering is the one use that defeats the
+purpose, because the number would then measure nothing at all.
+
+### Realised against predicted
+
+Walk-forward produces a prediction: for the deployed book, a median quarter and
+a worst quarter, scaled by each allocation's share of the account. `bot/tracking.py`
+writes that prediction into the `expectations` table the first time the book is
+seen, keyed by a fingerprint of every symbol, interval, strategy and parameter
+set, and never recomputes it.
+
+Never recomputing is the whole point. A walk-forward run today includes the
+period the bot has been live, so an expectation derived from it has quietly
+absorbed the outcome it is supposed to be judging. Comparing that against
+realised results is not a forward test — it is a fit reported as a forecast. The
+prediction has to be older than the data it is measured against or it is not a
+prediction.
+
+The comparison is a band, not a line, because one expected number cannot be
+falsified sensibly: the walk-forward says the median quarter is +9% and the
+worst is −12%, and a realised −3% is unremarkable against that pair and alarming
+against the median alone. The band's width is the distance between the two,
+scaled to elapsed time by the square root of the horizon — the way dispersion
+actually accumulates. Scaling it linearly would claim the worst plausible first
+day is a ninetieth of the worst plausible quarter, which no market has ever
+done.
+
+Realised is measured as the *change* in equity since each baseline took effect,
+never as an absolute. The testnet account was seeded above the configured
+capital and holds hundreds of assets the bot never bought, so the level is off
+by a constant — and a constant cancels out of a difference. Book changes start a
+new segment that continues from where the previous one ended, so switching
+allocations does not reset the score. No verdict is issued before 14 days,
+because under that the realised curve is a couple of trades either side of
+nothing.
+
+The readiness gate reads the band: it passes when the realised curve is at or
+above the bottom of it. Sitting below the median is normal and does not fail;
+leaving the band from underneath is the thing worth catching, and catching it in
+week six is worth considerably more than confirming it in month nine.
 
 ### Portfolio risk controls
 
@@ -439,9 +541,12 @@ The sidebar has five views, and they are ordered by how often you need them.
    The *Lucro e perda* panel spells out the arithmetic in order — starting
    capital, what closed trades did to it, what open trades are currently doing
    to it, what is left — because a single total hides the difference between
-   money that is banked and money that can still evaporate. The estimated fees
+   money that is banked and money that can still evaporate. The fees
    paid so far are shown underneath; they are already deducted from every other
-   number on the page.
+   number on the page. Where the exchange reported a commission the figure is
+   the measured one, and the panel says how many orders that covers; the rest
+   fall back to the configured rate. On the Spot Testnet, which charges nothing,
+   they all do.
 
    *Saldo livre*, in the top bar, is a different quantity and will normally
    disagree with *Patrimônio*. That is by design, not a defect. Equity is the
@@ -487,10 +592,17 @@ The sidebar has five views, and they are ordered by how often you need them.
    money made.
 7. **Validação** opens with *Pronto para conta real?*, a checklist that compares
    what the walk-forward expects against what the live run has actually
-   produced, and can say no. Below it, the walk-forward itself walks each live
-   allocation across eight rolling quarters on its deployed parameters and shows
-   the quarter-by-quarter table behind the verdict. This is the number to trust
-   — a single backtest total is not.
+   produced, and can say no. *Realizado contra o previsto* plots the live equity
+   curve inside the band predicted for it on the day the book shipped, so a run
+   drifting out of its own forecast is visible in week six rather than month
+   nine. *Onde a vantagem aparece* splits every walk-forward window by market
+   condition, which is where the book's actual character shows: it loses to
+   holding in a rally and beats it in every measured bear window. *Cobertura*
+   reports the share of candle closes the process was awake for, and names what
+   an earlier baseline set aside. Below all of it, the walk-forward itself walks
+   each live allocation across eight rolling quarters on its deployed parameters
+   and shows the quarter-by-quarter table behind the verdict. This is the number
+   to trust — a single backtest total is not.
 
 ## Terminal usage
 
@@ -519,13 +631,41 @@ bot/
   live.py         live trading engine
   parity.py       every live trade against the trade the backtest would have made
   coverage.py     which candle closes the bot was actually awake for
+  tracking.py     the expectation frozen when the book shipped, against what happened
   report.py       dashboard aggregations
   storage.py      SQLite persistence
   api.py          FastAPI app
 web/              dashboard (no build step, plain HTML/CSS/JS)
+deploy/           systemd unit, host provisioning, Windows stopgap
 data/trader.db    created on first run
 ROADMAP.md        what has been tried, what was learned, what is next
 ```
+
+## Running it unattended
+
+The forward test is gated on uptime, and uptime is the one input the code cannot
+supply. `deploy/` holds what is needed to move the run off a desktop:
+
+* `install.sh` provisions a fresh Ubuntu host — toolchain, swap, service
+  account, virtualenv, NTP — and installs the unit. Re-running it redeploys the
+  code without touching `data/` or `.env`.
+* `pouch.service` runs the dashboard under systemd with `Restart=always`. The
+  bot re-enables itself on startup whenever the saved config had it enabled, so
+  a reboot costs one poll interval.
+* `windows-task.ps1` is the stopgap for running on a desktop in the meantime: a
+  scheduled task that starts at logon and restarts on failure, plus disabling
+  sleep and hibernate.
+
+The service binds to localhost deliberately. The dashboard has no login and the
+same interface that plots equity also places orders, so it is reached over an
+SSH tunnel rather than published.
+
+`deploy/README.md` covers which free hosts actually work. The short version:
+Oracle Cloud's Always Free tier in a **non-US region**, because Binance answers
+US IP ranges with HTTP 451 — which rules out Google Cloud's free `e2-micro`
+entirely, since it is only free in US regions. Render, Railway and Fly no longer
+offer a free always-on process, and a GitHub Actions cron has no persistent
+disk for the database and no guarantee it runs on time.
 
 ## Interpreting results honestly
 
@@ -567,14 +707,17 @@ still there, which no amount of careful execution can answer and only time can.
 | Live trades matching their backtest twin | 10 | The edge is established by walk-forward, on hundreds of trades. What a live run uniquely proves is that the engine executes the model — same decision candle, fill against the following open, cost inside the assumption — and an execution defect is systematic, so it shows up in the first few paired trades rather than needing a statistical sample |
 | Candle closes the bot was awake for | 90% | A candle slept through is invisible afterwards: a strategy that never fired and a strategy that fired while nobody was listening leave the same empty record |
 | Closed trades, and days of running | 100 **and** 270 | 270 days is three complete 90-day walk-forward windows, which is the smallest number of realised quarters that can be placed inside the distribution of measured ones — a single quarter is one draw and is consistent with almost any hypothesis. 100 closed trades puts the win rate inside roughly ±10 points; at 30 the interval is ±18 and separates nothing. Both bounds have to clear, because 100 trades inside one volatile month samples one regime, and nine quiet months with forty trades is time without evidence |
-| Realised result not worse than the expected worst quarter | −11.97% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
+| Realised result inside the band predicted when the book shipped | at or above the lower edge | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured. The band runs from the median expectation to the worst measured quarter, scaled to elapsed time by the square root of the horizon, and is frozen on the day the book was deployed so it cannot absorb the results it is judging. Sitting below the median is normal; leaving the band from underneath is not |
 | Observed drawdown within the configured limit | 20% | Roughly 1.7× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
 
 The expectation is scaled to the size actually traded — each allocation's median
 quarter divided by three, times its share of capital — which for the current
-book of 17 allocations at 500 of 10,000 comes to **+3.08% per month across about
-27 trades**, against a worst measured quarter of **−11.97%**. Those are the
-numbers a real account should be expected to reproduce before it is funded.
+book of 17 allocations at 500 of 10,000 came to **+2.97% per month across about
+27 trades**, against a worst measured quarter of **−11.85%**. Those are the
+numbers a real account should be expected to reproduce before it is funded, and
+they are stored in the `expectations` table exactly as they read on the day the
+book shipped rather than recomputed on demand — see *Realised against predicted*
+above for why that distinction is the whole exercise.
 
 At that trade rate the 100-trade bound arrives in under four months, so the
 270-day bound is the one that actually binds — which is the intended shape. The

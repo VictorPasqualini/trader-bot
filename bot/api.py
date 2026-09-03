@@ -14,7 +14,7 @@ from . import backtest as bt
 from . import coverage
 from . import parity
 from . import report, research, signals, storage
-from . import portfolio, screening, walkforward
+from . import portfolio, screening, tracking, walkforward
 from . import strategies as st
 from .config import WEB_DIR, settings
 from .exchange import BinanceError, exchange
@@ -147,7 +147,12 @@ def update_risk(request: RiskRequest) -> dict[str, Any]:
 @app.get("/api/validation")
 def validation(refresh: bool = False) -> dict[str, Any]:
     """Walk-forward verdict on every allocation, on its deployed parameters."""
-    return walkforward.validation_state(get_config()["allocations"], refresh=refresh)
+    state = walkforward.validation_state(get_config()["allocations"], refresh=refresh)
+    # The per-regime slice, pooled across the book. Computed here rather than
+    # cached with the reports because it is cheap and derived: the expensive
+    # part is the walk-forward itself.
+    state["regimes"] = walkforward.book_regimes(state.get("reports") or [])
+    return state
 
 
 @app.get("/api/parity")
@@ -160,6 +165,40 @@ def parity_report(limit: int = 50) -> dict[str, Any]:
 def coverage_report() -> dict[str, Any]:
     """Which candle closes the bot was awake for, and which it slept through."""
     return coverage.report()
+
+
+class BaselineIn(BaseModel):
+    at: str | None = Field(None, description="ISO instant; defaults to now")
+
+
+@app.post("/api/coverage/baseline")
+def coverage_baseline(body: BaselineIn) -> dict[str, Any]:
+    """Start counting candle coverage from now.
+
+    Missed closes never expire, so a run that began on a laptop being switched
+    on and off carries that record forever and can never reach the gate however
+    reliable the machine becomes afterwards. Moving the baseline is how a change
+    of deployment gets measured on its own terms.
+
+    Deliberately not wired to a button. The closes set aside stay in the report
+    and the old figure goes to the event log, but the one use that defeats the
+    whole device is moving it because the number is unflattering, and a button
+    invites exactly that.
+    """
+    from datetime import datetime
+    moment = None
+    if body.at:
+        try:
+            moment = datetime.fromisoformat(body.at)
+        except ValueError:
+            raise HTTPException(400, "at must be an ISO 8601 instant")
+    return coverage.set_baseline(moment)
+
+
+@app.get("/api/tracking")
+def tracking_report() -> dict[str, Any]:
+    """The realised curve against the band predicted when the book was deployed."""
+    return tracking.report()
 
 
 @app.get("/api/signals")

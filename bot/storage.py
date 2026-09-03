@@ -84,7 +84,13 @@ CREATE TABLE IF NOT EXISTS orders (
     status     TEXT NOT NULL,
     strategy   TEXT,
     note       TEXT,
-    position_id INTEGER
+    position_id INTEGER,
+    -- What the exchange actually took, in whichever asset it took it. Measured,
+    -- not derived from the configured fee rate: the testnet charges nothing and
+    -- a real account charges in the coin bought, so the difference between the
+    -- two is exactly the thing a forward test on the testnet cannot see.
+    fee        REAL,
+    fee_asset  TEXT
 );
 
 CREATE TABLE IF NOT EXISTS equity_snapshots (
@@ -102,6 +108,28 @@ CREATE TABLE IF NOT EXISTS events (
     message TEXT NOT NULL,
     context TEXT
 );
+
+-- What the book was predicted to do, written when the book changed and never
+-- recomputed. A prediction recalculated after the fact is not a prediction:
+-- the walk-forward it comes from would by then include the very period being
+-- judged. See bot/tracking.py.
+CREATE TABLE IF NOT EXISTS expectations (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at     TEXT NOT NULL,
+    -- When the book this row describes started trading. Normally the same as
+    -- recorded_at; earlier only for the first row ever written, which has to
+    -- cover a run that predates the table.
+    effective_from  TEXT NOT NULL,
+    book            TEXT NOT NULL,
+    start_capital   REAL NOT NULL,
+    quote_per_trade REAL NOT NULL,
+    allocations     INTEGER NOT NULL,
+    return_pct_month  REAL NOT NULL,
+    worst_quarter_pct REAL NOT NULL,
+    trades_month      REAL NOT NULL,
+    detail          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_expectations_from ON expectations(effective_from);
 
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
@@ -129,6 +157,8 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("positions", "entry_context", "TEXT"),
     ("positions", "exit_context", "TEXT"),
     ("orders", "position_id", "INTEGER"),
+    ("orders", "fee", "REAL"),
+    ("orders", "fee_asset", "TEXT"),
 )
 
 
