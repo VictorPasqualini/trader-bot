@@ -444,12 +444,22 @@ The sidebar has five views, and they are ordered by how often you need them.
    number on the page.
 
    *Saldo livre*, in the top bar, is a different quantity and will normally
-   disagree with *Patrimônio*. Equity is the bot's own ledger: the configured
-   starting capital plus what this run's trades have done to it. The balance is
-   the exchange account's free quote asset — it carries whatever the account did
-   before the current history began, and it drops by the full order size while a
-   position is open, because that money is sitting in the coin. Equity keeps
-   counting the coin at its market price; the balance does not count it at all.
+   disagree with *Patrimônio*. That is by design, not a defect. Equity is the
+   bot's own ledger: the starting capital configured in **Ajustes** plus what
+   this run's trades have done to it. The balance is the exchange account's free
+   quote asset, and three things separate them. The account did not start at the
+   configured number — a testnet faucet hands out whatever it hands out, and on
+   this one that was about 21 USDT more than the 10,000 the book assumes. The
+   account also carries trades taken before the current history was reset, which
+   the ledger no longer knows about. And while a position is open the balance
+   drops by the full order size, because that money is now sitting in the coin,
+   whereas equity keeps valuing the coin at its market price.
+
+   Reconciling the two exactly is not a goal, and on a testnet account it is not
+   even possible: the faucet preloads several hundred assets that have nothing
+   to do with any strategy. Equity is deliberately the book and not the wallet.
+   What must reconcile is each individual trade, and that is what the **parity**
+   check on the Validação view measures.
 
    *Sinais agora* lists every allocation with the one
    comparison it is waiting on — the value measured on the last closed candle,
