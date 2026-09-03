@@ -83,7 +83,75 @@ class Strategy:
             state[i] = 1.0 if holding else 0.0
         return pd.Series(state, index=entry.index)
 
-    def explain(self, df: pd.DataFrame) -> dict[str, Any]:
+    def trigger(self, kind: str = "entry") -> tuple[str, str, str | float] | None:
+        """The two numbers whose comparison is the whole decision.
+
+        ``indicators`` returns everything behind a trade, which is right for an
+        audit and wrong for a glance: one of those numbers crossed another and
+        the rest are context. Naming the pair lets the interface print the
+        decision itself - "1.3911 above 1.3600" - instead of a list the reader
+        has to reduce in their head. The left side is a measured series; the
+        right side is either another series or a fixed level.
+        """
+        return None
+
+    def reading(self, df: pd.DataFrame, kind: str = "entry", *, bar: int = -1,
+                series: dict[str, pd.Series] | None = None) -> dict[str, Any] | None:
+        """The trigger pair, evaluated on one bar of ``df``.
+
+        ``distance_pct`` is how far the measured side sits from the level it
+        has to cross, as a share of that level. It answers "how close is this
+        to firing", which is the question an operator watching seventeen
+        allocations actually has.
+
+        ``bar`` defaults to the last row, which is what a live reading wants.
+        Replaying a history of trades asks the same question at dozens of past
+        bars over the same frame, so ``series`` takes an indicator set that has
+        already been computed instead of recomputing it once per trade.
+        """
+        pair = self.trigger(kind)
+        if not pair:
+            return None
+        left_name, operator, right = pair
+        if series is None:
+            series = self.indicators(df)
+        if left_name not in series:
+            return None
+        try:
+            left_value = float(series[left_name].iloc[bar])
+        except (TypeError, ValueError, IndexError):
+            return None
+        if isinstance(right, str):
+            if right not in series:
+                return None
+            try:
+                right_value = float(series[right].iloc[bar])
+            except (TypeError, ValueError, IndexError):
+                return None
+            right_name: str | None = right
+        else:
+            right_value, right_name = float(right), None
+        if left_value != left_value or right_value != right_value:  # NaN
+            return None
+        met = {">": left_value > right_value, ">=": left_value >= right_value,
+               "<": left_value < right_value, "<=": left_value <= right_value,
+               }[operator]
+        # A level of zero has no percentage to be far from, and a strategy
+        # that crosses zero - MACD, momentum, Supertrend - is exactly the case
+        # where a percentage would read as 100% no matter how close the call
+        # was. There the raw gap is the only honest number.
+        gap = left_value - right_value
+        return {
+            "left": left_name, "left_value": round(left_value, 8),
+            "operator": operator,
+            "right": right_name, "right_value": round(right_value, 8),
+            "met": met,
+            "gap": round(gap, 8),
+            "distance_pct": (round(gap / abs(right_value) * 100, 2)
+                             if right_value else None),
+        }
+
+    def explain(self, df: pd.DataFrame, kind: str = "entry") -> dict[str, Any]:
         """Indicator values at the last bar, recorded against each trade.
 
         This is what turns "it bought" into "it bought because price closed at
@@ -103,6 +171,7 @@ class Strategy:
             "exit_rule": self.exit_rule,
             "params": self.params,
             "values": values,
+            "trigger": self.reading(df, kind),
         }
 
     def describe(self) -> dict[str, Any]:
@@ -143,6 +212,12 @@ class EmaCross(Strategy):
         period = self.params.get("trend", 0)
         trend = ta.ema(df["close"], period) if period else None
         return fast, slow, trend
+
+
+    def trigger(self, kind="entry"):
+        fast = f"EMA {self.params['fast']}"
+        slow = f"EMA {self.params['slow']}"
+        return (fast, ">", slow) if kind == "entry" else (fast, "<", slow)
 
     def indicators(self, df):
         fast, slow, trend = self._series(df)
@@ -190,6 +265,10 @@ class MacdTrend(Strategy):
         trend = ta.ema(df["close"], period) if period else None
         return line, sig, hist, trend
 
+
+    def trigger(self, kind="entry"):
+        return ("histogram", ">", 0.0) if kind == "entry" else ("histogram", "<", 0.0)
+
     def indicators(self, df):
         line, sig, hist, trend = self._series(df)
         out = {"price": df["close"], "MACD": line, "signal line": sig, "histogram": hist}
@@ -225,6 +304,11 @@ class Supertrend(Strategy):
     def _series(self, df):
         return ta.supertrend(df["high"], df["low"], df["close"],
                              self.params["period"], self.params["mult"])
+
+
+    def trigger(self, kind="entry"):
+        name = "Supertrend direction"
+        return (name, ">", 0.0) if kind == "entry" else (name, "<", 0.0)
 
     def indicators(self, df):
         return {
@@ -263,6 +347,12 @@ class DonchianBreakout(Strategy):
         lower, _ = ta.donchian(df["high"], df["low"], self.params["exit"])
         return upper, lower
 
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("price", ">", f"{self.params['entry']}-bar high")
+        return ("price", "<", f"{self.params['exit']}-bar low")
+
     def indicators(self, df):
         upper, lower = self._series(df)
         return {
@@ -295,6 +385,12 @@ class BollingerBreakout(Strategy):
 
     def _series(self, df):
         return ta.bollinger(df["close"], self.params["period"], self.params["mult"])
+
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("price", ">", "upper band")
+        return ("price", "<", f"MA {self.params['period']}")
 
     def indicators(self, df):
         lower, mid, upper = self._series(df)
@@ -330,6 +426,12 @@ class BollingerReversion(Strategy):
         period = self.params.get("trend", 0)
         trend = ta.ema(df["close"], period) if period else None
         return lower, mid, upper, trend
+
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("price", "<", "lower band")
+        return ("price", ">", f"MA {self.params['period']}")
 
     def indicators(self, df):
         lower, mid, upper, trend = self._series(df)
@@ -372,6 +474,13 @@ class RsiReversion(Strategy):
         period = self.params.get("trend", 0)
         trend = ta.ema(df["close"], period) if period else None
         return rsi, trend
+
+
+    def trigger(self, kind="entry"):
+        rsi = f"RSI {self.params['period']}"
+        if kind == "entry":
+            return (rsi, "<", "oversold level")
+        return (rsi, ">", "exit level")
 
     def indicators(self, df):
         rsi, trend = self._series(df)
@@ -416,6 +525,12 @@ class StochReversion(Strategy):
         return ta.stochastic(df["high"], df["low"], df["close"],
                              self.params["period"], self.params["smooth"])
 
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("%K", ">", "%D")
+        return ("%K", ">", "overbought level")
+
     def indicators(self, df):
         k, d = self._series(df)
         return {
@@ -458,6 +573,11 @@ class Momentum(Strategy):
         # Skip the noisiest regime: sit out when vol is in its own top quartile.
         cap = vol.rolling(window, min_periods=window).quantile(0.75)
         return momentum, vol, cap
+
+
+    def trigger(self, kind="entry"):
+        roc = f"ROC {self.params['period']}%"
+        return (roc, ">", "threshold") if kind == "entry" else (roc, "<", "threshold")
 
     def indicators(self, df):
         momentum, vol, cap = self._series(df)
@@ -507,6 +627,12 @@ class AdxTrend(Strategy):
         strength = ta.adx(df["high"], df["low"], df["close"], self.params["adx_period"])
         return fast, slow, strength
 
+
+    def trigger(self, kind="entry"):
+        fast = f"EMA {self.params['fast']}"
+        slow = f"EMA {self.params['slow']}"
+        return (fast, ">", slow) if kind == "entry" else (fast, "<", slow)
+
     def indicators(self, df):
         fast, slow, strength = self._series(df)
         return {
@@ -549,6 +675,12 @@ class VwapReversion(Strategy):
         vwap = pv / vol
         spread = df["close"] / vwap - 1
         return vwap, ta.zscore(spread, period)
+
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("z-score", "<", "entry z-score")
+        return ("z-score", ">", "exit z-score")
 
     def indicators(self, df):
         vwap, z = self._series(df)
@@ -598,6 +730,12 @@ class Ensemble(Strategy):
         period = self.params.get("trend", 0)
         trend = ta.ema(df["close"], period) if period else None
         return members, trend
+
+
+    def trigger(self, kind="entry"):
+        if kind == "entry":
+            return ("votes", ">=", "votes required")
+        return ("votes", "<", "votes required")
 
     def indicators(self, df):
         members, trend = self._series(df)

@@ -1,4 +1,4 @@
-/* Trader Bot dashboard ---------------------------------------------------- */
+/* Hodlster dashboard ---------------------------------------------------- */
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -226,6 +226,66 @@ async function loadDashboard() {
   state.breakdown = breakdown;
   renderBreakdown(breakdown[state.breakdownGroup || 'by_strategy']);
   renderEvents(events);
+  await loadSignals();
+}
+
+/* The panel that answers "why has nothing happened". A book of seventeen
+   allocations is silent most of the time, and silence from a working bot and
+   silence from a broken one look identical unless the interface shows the
+   number each strategy is watching and how far it is from the line. */
+async function loadSignals() {
+  const { rows } = await api('/signals');
+  const body = $('#signals-table tbody');
+  $('#signals-empty').hidden = rows.length > 0;
+  $('#signals-table').hidden = rows.length === 0;
+
+  const ready = rows.filter((r) => r.trigger && r.trigger.met).length;
+  const holding = rows.filter((r) => r.holding).length;
+  setText('#signals-summary', rows.length
+    ? `${plural(rows.length, 'alocação', 'alocações')} · ${holding} comprada${holding === 1 ? '' : 's'}`
+      + ` · ${ready} com o gatilho atendido`
+    : '—');
+
+  body.innerHTML = rows.map((row) => {
+    if (!row.trigger) {
+      return `<tr><td class="mono">${esc(row.symbol || '—')}</td>
+        <td class="muted" colspan="6">${esc(row.error || 'sem gatilho declarado')}</td></tr>`;
+    }
+    const t = row.trigger;
+    const distance = t.distance_pct == null ? num(t.gap) : `${signed(t.distance_pct, 1)}%`;
+    return `
+    <tr>
+      <td class="mono">${esc(row.symbol)} <span class="muted">${esc(row.interval)}</span></td>
+      <td class="muted">${esc(row.strategy_label)}</td>
+      <td>${row.holding
+        ? '<span class="chip warn">saída</span>'
+        : '<span class="chip">entrada</span>'}
+        <span class="muted">${esc(triggerText(t))}</span></td>
+      <td class="num mono">${num(t.left_value)}</td>
+      <td class="num mono">${num(t.right_value)}</td>
+      <td class="num ${t.met ? 'pos' : 'muted'}">${distance}</td>
+      <td>${t.met ? '<span class="chip ok">atendido</span>' : ''}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* "RSI 14 abaixo de 25" - the comparison in words, so the two numbers beside
+   it do not have to be read against an operator symbol. */
+function triggerText(trigger) {
+  const OP = { '>': 'acima de', '>=': 'pelo menos', '<': 'abaixo de', '<=': 'no máximo' };
+  const left = indicatorText(trigger.left);
+  const right = trigger.right ? indicatorText(trigger.right) : num(trigger.right_value);
+  return `${left} ${OP[trigger.operator] || trigger.operator} ${right}`;
+}
+
+/* The decision itself, on one line, above the full indicator list. */
+function triggerBox(trigger) {
+  if (!trigger) return '';
+  return `<p class="sigtrigger ${trigger.met ? 'is-met' : ''}">
+    <span class="sigtrigger-label">${esc(triggerText(trigger))}</span>
+    <span class="sigtrigger-nums mono">${num(trigger.left_value)}
+      <span class="muted">vs</span> ${num(trigger.right_value)}</span>
+  </p>`;
 }
 
 /* The waterfall exists because a single "resultado total" number hides the two
@@ -609,6 +669,7 @@ function sideCard(title, rule, values, price, time, signal) {
       <p class="sigrule">${esc(ruleText(rule))}</p>
       <p class="sigmeta">preço ${num(price)}${time ? ` · ${dt(time)}` : ''}</p>
       ${triggerLine(signal)}
+      ${triggerBox(signal && signal.trigger)}
       ${valueList(values)}
     </div>`;
 }
@@ -628,10 +689,14 @@ function tradeRow(trade, key) {
       <td class="num">${trade.exit_price == null ? num(trade.mark_price) : num(trade.exit_price)}</td>
       <td class="num ${cls(trade.pnl)}">${trade.pnl == null ? '—' : signed(trade.pnl)}</td>
       <td class="num ${cls(trade.return_pct)}">${trade.return_pct == null ? '—' : pct(trade.return_pct)}</td>
+      <td class="mono num">${trade.entry_signal && trade.entry_signal.trigger
+        ? `${num(trade.entry_signal.trigger.left_value)} <span class="muted">vs</span>`
+          + ` ${num(trade.entry_signal.trigger.right_value)}`
+        : '<span class="muted">—</span>'}</td>
       <td class="muted">${open ? 'em andamento' : esc(reason)}</td>
     </tr>
     <tr class="trade-detail" id="${key}" hidden>
-      <td colspan="9">
+      <td colspan="10">
         <div class="sigpair">
           ${sideCard('Sinal de entrada', trade.entry_rule, trade.entry_values,
                      trade.entry_price, trade.entry_time, trade.entry_signal)}
@@ -675,7 +740,8 @@ function tradeGroup(group, index) {
           <thead>
             <tr><th></th><th>Entrada</th><th>Saída</th><th>Duração</th>
                 <th class="num">Preço entrada</th><th class="num">Preço saída</th>
-                <th class="num">Resultado</th><th class="num">%</th><th>Motivo da saída</th></tr>
+                <th class="num">Resultado</th><th class="num">%</th>
+                <th class="num">Sinal de compra</th><th>Motivo da saída</th></tr>
           </thead>
           <tbody>${trades.map((t, i) => tradeRow(t, `d-${index}-${i}`)).join('')}</tbody>
         </table>

@@ -134,7 +134,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
     import uvicorn
 
     url = f"http://{args.host}:{args.port}"
-    print(f"\n  Trader Bot dashboard -> {url}\n")
+    print(f"\n  Hodlster dashboard -> {url}\n")
     if not args.no_browser:
         threading.Timer(1.5, lambda: webbrowser.open(url)).start()
     uvicorn.run("bot.api:app", host=args.host, port=args.port,
@@ -143,7 +143,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Trader Bot")
+    parser = argparse.ArgumentParser(description="Hodlster")
     sub = parser.add_subparsers(dest="command")
 
     serve = sub.add_parser("serve", help="start the web dashboard (default)")

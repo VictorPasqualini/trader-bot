@@ -930,6 +930,114 @@ without adding noise — which is exactly what dropping to 15m would not do.
 
 ---
 
+## Phase 15 — Nine months, and showing the number being watched ✅
+
+Phase 13 built a two-week checklist because the owner could not leave a machine
+running for a quarter. That constraint was lifted: the bot is now meant to run
+toward a nine-month horizon, with periodic reviews rather than a deadline. The
+checklist was rebuilt around the longer horizon, and the seven strongest
+candidates from the Phase 14 walk-forward were added to the book.
+
+### Why nine months, and not six or twelve
+
+270 days is three complete 90-day walk-forward windows. That is the entire
+reason for the number. Validation reports a *distribution* of quarterly results
+per allocation — eight of them, with a median and a worst case — and a live run
+can only be compared against a distribution if it produces something that lives
+in the same units. One realised quarter cannot be placed inside a distribution
+of quarters; it is a single draw, and a single draw is consistent with almost
+any hypothesis. Three can: at three quarters it becomes possible to say whether
+the live book is tracking the middle of its measured range, the bottom of it, or
+somewhere outside it entirely.
+
+The trade count moves for a different reason. A win rate estimated from 30
+closed trades carries a confidence interval of roughly ±18 points, which is wide
+enough to contain both "this works" and "this does not". At 100 trades the
+interval is about ±10 points. That is still not precise, but it is narrow enough
+to separate a 55% book from a 40% one, which is the decision actually being
+made.
+
+Both bounds have to clear, because they are not interchangeable. A book can
+reach 100 trades inside one volatile month — one regime, sampled densely — or
+sit through nine months of quiet and take forty. The first has trades without
+time and the second has time without trades; neither is nine months of evidence.
+
+### The checklist, in two tiers
+
+| Tier | Gate | Threshold | What it answers |
+| --- | --- | --- | --- |
+| Execution | Parity | 10 matched trades | Does the engine fill where the model said? |
+| Execution | Coverage | 90% of candle closes | Was the bot awake when decisions were due? |
+| Evidence | Sample | 100 closed trades **and** 270 days | Is there enough live data to judge? |
+| Evidence | Tracking | Realised within range of expected | Is the edge still there? |
+| Evidence | Drawdown | Within the configured limit | Is the risk what was modelled? |
+
+The tiers clear on different clocks and that is deliberate. Execution is a
+systematic property — a timing or pricing defect appears in the first two or
+three paired trades, because each live trade is compared against its own
+backtest twin rather than pooled into an average — so the execution tier is
+expected to clear within weeks. Until it does, nothing else on the list means
+anything: a book that is profitable while filling somewhere the backtest never
+modelled is profitable by accident, and accidents do not survive being scaled
+up. The evidence tier is what the nine months are for.
+
+### Seven allocations added
+
+The Phase 14 walk-forward tested the 20 highest-scoring validated candidates
+outside the book; 17 held up. The seven added are the ones that survived on
+both edges of the test — a positive median quarter and a worst quarter the
+portfolio can absorb.
+
+| Symbol | Interval | Strategy | Windows won | Median quarter | Worst quarter | Trades |
+| --- | --- | --- | --- | --- | --- | --- |
+| ALGOUSDT | 4h | RSI reversion | 7 of 8 | +17.91% | −4.10% | 53 |
+| UNIUSDT | 1d | VWAP reversion | 5 of 8 | +15.75% | −5.99% | 7 |
+| CRVUSDT | 1d | Bollinger reversion | 7 of 8 | +15.59% | −22.76% | 18 |
+| GRTUSDT | 4h | RSI reversion | 7 of 8 | +11.03% | 0.00% | 21 |
+| ETCUSDT | 4h | VWAP reversion | 5 of 8 | +10.87% | −6.60% | 33 |
+| DOTUSDT | 4h | Bollinger breakout | 6 of 8 | +8.85% | −25.12% | 44 |
+| SEIUSDT | 1d | VWAP reversion | 6 of 8 | +7.33% | −21.68% | 14 |
+
+Price correlation across the expanded book is high — median 0.70, worst pair
+ETC/GRT at 0.87 — but correlated prices are not the risk that matters here.
+These are mostly reversion strategies with different lookbacks and thresholds,
+so they are rarely in the market at the same time: the highest position overlap
+between any two allocations is a Jaccard index of 0.45, the average number of
+simultaneous positions is 3.3, and the maximum ever observed is 9 of 17. At 500
+USDT per trade against 10 000 of capital the worst observed case commits 4 500.
+The book is now 17 allocations, which is a book, not a portfolio of one trade
+wearing seventeen hats.
+
+### The panel that answers "why has nothing happened"
+
+Seventeen allocations on 4h and 1d candles are silent most of the time, and
+silence from a working bot and silence from a broken one look identical. The
+trade log only ever speaks after the fact.
+
+Every strategy now declares its *trigger*: the one comparison that is the whole
+decision, as a `(left series, operator, right series or level)` triple, one for
+entry and one for exit. `Strategy.reading()` evaluates it on a given bar and
+returns both sides, whether the condition is met, the raw gap and the distance
+as a percentage of the level. That last number is what turns an indicator dump
+into an answer — "ARBUSDT is 9.6% below its upper band" is a state an operator
+can hold in their head for seventeen symbols; four Bollinger values each are
+not.
+
+The distance is deliberately `null` when the level is zero. MACD histogram,
+ROC against a zero threshold and Supertrend direction all cross zero, and a
+percentage of zero reads as ±100% no matter how close the call actually was.
+There the raw gap is the only honest number, and the interface prints it
+instead.
+
+The reading is surfaced in three places: a `Sinais agora` panel on the dashboard
+listing all allocations sorted by nearness, the entry and exit cards on each
+trade (live and simulated alike, so the history table teaches the number before
+a live trade ever uses it), and a `Sinal de compra` column on the trade table.
+For a symbol already held the panel flips to the exit rule, because that is the
+decision actually pending.
+
+---
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -987,5 +1095,9 @@ market-neutral comparison.
 | Readiness is a checklist, not a score | A score averages away the one missing condition, and the one missing condition is exactly what has to be known before risking real money |
 | Kill switch on, volatility sizing and correlation cap off | The kill switch only acts in a tail the measured expectation never contains; the other two change which trades get taken, which would stop the live run from being a test of what was measured |
 | Do not score live trades taken by an engine that no longer exists | A parity sample judges the engine as it stands; keeping the old trades in would let a later fix look like an improvement no live trade caused |
+| Nine months, not ninety days | 270 days is three complete walk-forward windows, so realised quarters can be placed inside the distribution of measured quarters; one quarter cannot |
+| 100 closed trades, not 30 | At 30 the win-rate confidence interval is about +/-18 points and separates nothing; at 100 it is about +/-10 |
+| Both time and trade count must clear | 100 trades in one volatile month samples one regime; nine quiet months with forty trades is time without evidence |
+| Every strategy declares one trigger pair | An indicator list is an audit trail; the decision is a single comparison, and only the comparison can be read at a glance across seventeen allocations |
 | Do not trade 15m on this deployment | The edge is thinner and rarer, and 96 candle closes a day against measured 15.4% coverage means the guard would skip almost every signal |
 | Add coins before adding speed | Both raise trade count, but an independently validated allocation adds trades without adding noise |

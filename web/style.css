@@ -1,4 +1,4 @@
-/* Trader Bot dashboard ---------------------------------------------------- */
+/* Hodlster dashboard ---------------------------------------------------- */
 
 :root {
   --bg: #070911;
@@ -80,12 +80,10 @@ button, input, select { font: inherit; color: inherit; }
 
 .brand { display: flex; align-items: center; gap: 11px; padding: 0 6px; }
 
+/* The mark carries its own gradient and corner radius, so the rule only has to
+   place it and keep the glow the rest of the accent surfaces have. */
 .brand-mark {
-  width: 36px; height: 36px;
-  display: grid; place-items: center;
-  border-radius: 11px;
-  background: linear-gradient(140deg, var(--accent), #8b5cf6);
-  font-weight: 700; font-size: 13px; letter-spacing: -0.02em;
+  width: 36px; height: 36px; display: block; border-radius: 11px;
   box-shadow: 0 8px 20px -10px var(--accent);
 }
 
@@ -479,6 +477,21 @@ tbody tr.trade-detail > td {
 }
 .sigrule { margin: 0 0 4px; font-size: 13px; }
 .sigmeta { margin: 0 0 10px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* The decision itself, pulled out of the indicator list underneath it. The
+   list is an audit trail; this one line is the reason the trade happened, so
+   it gets the border and the tabular numbers and the list does not. */
+.sigtrigger {
+  display: flex; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 4px 12px;
+  margin: 0 0 10px; padding: 7px 10px;
+  border: 1px solid var(--border-soft); border-left: 2px solid var(--faint);
+  border-radius: var(--radius-sm); background: rgba(10, 13, 21, 0.4);
+}
+.sigtrigger.is-met { border-left-color: var(--pos); background: var(--pos-soft); }
+.sigtrigger-label { font-size: 12.5px; color: var(--muted); }
+.sigtrigger.is-met .sigtrigger-label { color: var(--text); }
+.sigtrigger-nums { font-size: 13px; font-variant-numeric: tabular-nums; }
 
 .sigvals { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 14px; margin: 0; }
 .sigvals > div { display: flex; justify-content: space-between; gap: 10px; border-bottom: 1px dotted var(--border-soft); }

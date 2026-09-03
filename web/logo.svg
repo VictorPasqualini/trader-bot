@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Hodlster">
+  <title>Hodlster</title>
+  <!-- The mascot is a hamster because that is what the bot does: it sits still
+       for weeks, stuffs a position into its cheek when the price is wrong, and
+       empties the pouch when the price is right. The dashed ring is the wheel,
+       which is also the polling loop. Detail is kept low on purpose - this is
+       rendered at 36 pixels in the sidebar and 16 in a browser tab. -->
+  <defs>
+    <linearGradient id="hodlster-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b7cfa"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="48" height="48" rx="14" fill="url(#hodlster-bg)"/>
+
+  <circle cx="24" cy="25" r="17.5" fill="none" stroke="#ffffff" stroke-opacity="0.26"
+          stroke-width="2" stroke-dasharray="6 6" stroke-linecap="round"/>
+
+  <g fill="#ffffff">
+    <circle cx="14.5" cy="15.5" r="5.2"/>
+    <circle cx="33.5" cy="15.5" r="5.2"/>
+    <!-- head, wider than tall: the cheek pouches are full -->
+    <ellipse cx="24" cy="27" rx="14.5" ry="12"/>
+  </g>
+
+  <!-- inner ears and cheek pouches, tinted rather than outlined -->
+  <g fill="#5b7cfa" fill-opacity="0.5">
+    <circle cx="14.5" cy="15.5" r="2.5"/>
+    <circle cx="33.5" cy="15.5" r="2.5"/>
+  </g>
+  <g fill="#5b7cfa" fill-opacity="0.22">
+    <circle cx="12.6" cy="30.5" r="4.2"/>
+    <circle cx="35.4" cy="30.5" r="4.2"/>
+  </g>
+
+  <g fill="#1b2233">
+    <circle cx="18.4" cy="25" r="2.2"/>
+    <circle cx="29.6" cy="25" r="2.2"/>
+    <path d="M24 29.4l2.5 2a3.1 3.1 0 0 1-5 0z"/>
+  </g>
+</svg>

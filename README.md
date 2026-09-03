@@ -1,6 +1,13 @@
-# Trader Bot
+# Hodlster
 
 A multi-strategy crypto trading bot with a local web dashboard.
+
+The name is a hamster wearing a HODL sign, and the mascot is the honest
+description of the engine: it sits still for weeks, stuffs a position into its
+cheek when the price is wrong, and empties the pouch when the price is right.
+Seventeen allocations on 4h and 1d candles do almost nothing almost all of the
+time, and the interface is built around making that stillness legible rather
+than alarming.
 
 ## Objective
 
@@ -119,7 +126,7 @@ The backtester is deliberately pessimistic:
   position between their entry and exit pulses, so an allocation added to the
   book while its signal is already long would buy a move that started days
   earlier — a trade no backtest ever makes. Measured over 900 candles of the
-  eleven live allocations, joining a run one candle late costs about 0.8 points
+  seventeen live allocations, joining a run one candle late costs about 0.8 points
   of mean trade return, and five candles late costs 2.6 points and six points of
   win rate. So a new allocation waits for its signal to drop and turn long
   again, at the cost of the run already in progress.
@@ -343,50 +350,79 @@ above.
 
 ## Current live allocation
 
-Eleven strategies across five families. The first six were chosen from the
+Seventeen strategies across five families. The first six were chosen from the
 20-major sweep under criteria stricter than the validation gate — at least 10
 out-of-sample trades, consistency at or above 62.5%, at least 30 points of alpha,
-and a positive Sharpe in both slices. The other five were harvested afterwards
-from the validated candidates that no allocation had ever used.
+and a positive Sharpe in both slices. Four more were harvested afterwards from
+the validated candidates that no allocation had ever used, and the last seven
+came from a walk-forward of the 20 highest-scoring validated candidates still
+outside the book, of which 17 held up.
 
 Every one is walked forward across eight rolling quarters *on the exact
 parameters it trades*, which is a much less flattering test than the single
-held-out split that first surfaced it. All eleven pass.
+held-out split that first surfaced it. All seventeen pass.
 
-| Symbol | Timeframe | Strategy | Quarters profitable | Beat buy-and-hold | Median quarter | Worst quarter | Worst drawdown |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| XRPUSDT | 1d | Bollinger Breakout | 75.0% | 62.5% | +10.6% | −10.9% | −17.6% |
-| AAVEUSDT | 1d | VWAP Reversion | 87.5% | 62.5% | +17.8% | −22.7% | −37.0% |
-| DOGEUSDT | 1d | RSI Reversion | 62.5% | 75.0% | +8.2% | −6.4% | −18.0% |
-| XLMUSDT | 4h | Bollinger Breakout | 62.5% | 62.5% | +13.2% | −8.4% | −24.1% |
-| ETHUSDT | 1d | Momentum | 62.5% | 50.0% | +8.5% | −23.5% | −36.3% |
-| INJUSDT | 4h | Bollinger Reversion | 50.0% | 50.0% | +3.7% | −17.2% | −25.2% |
-| IMXUSDT | 4h | VWAP Reversion | 75.0% | 75.0% | +8.3% | −6.8% | −19.7% |
-| ATOMUSDT | 4h | Momentum | 75.0% | 75.0% | +5.4% | −36.5% | −36.5% |
-| ARBUSDT | 4h | Bollinger Breakout | 62.5% | 75.0% | +11.9% | −11.3% | −20.8% |
-| CHZUSDT | 4h | Ensemble Vote | 50.0% | 87.5% | +10.2% | −27.3% | −33.4% |
-| NEARUSDT | 4h | Bollinger Reversion | 75.0% | 62.5% | +5.3% | −3.7% | −18.1% |
+| Symbol | Timeframe | Strategy | Quarters profitable | Beat buy-and-hold | Median quarter | Worst quarter | Worst drawdown | Trades |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XRPUSDT | 1d | Bollinger Breakout | 75.0% | 50.0% | +7.5% | −10.9% | −18.8% | 14 |
+| AAVEUSDT | 1d | Rolling VWAP Reversion | 87.5% | 62.5% | +19.6% | −22.7% | −37.0% | 17 |
+| DOGEUSDT | 1d | RSI Mean Reversion | 75.0% | 62.5% | +7.8% | −12.4% | −18.0% | 12 |
+| XLMUSDT | 4h | Bollinger Breakout | 62.5% | 75.0% | +13.2% | −10.5% | −24.1% | 48 |
+| ETHUSDT | 1d | Momentum (ROC) | 62.5% | 62.5% | +8.5% | −26.6% | −36.3% | 56 |
+| IMXUSDT | 4h | Rolling VWAP Reversion | 62.5% | 75.0% | +7.0% | −6.8% | −16.4% | 33 |
+| ATOMUSDT | 4h | Momentum (ROC) | 75.0% | 75.0% | +5.9% | −29.8% | −31.5% | 144 |
+| ARBUSDT | 4h | Bollinger Breakout | 62.5% | 75.0% | +12.8% | −11.3% | −20.8% | 46 |
+| CHZUSDT | 4h | Ensemble Vote | 62.5% | 75.0% | +10.1% | −18.5% | −21.1% | 69 |
+| NEARUSDT | 4h | Bollinger Mean Reversion | 87.5% | 62.5% | +5.3% | −3.7% | −18.2% | 25 |
+| ALGOUSDT | 4h | RSI Mean Reversion | 87.5% | 50.0% | +17.9% | −4.1% | −23.2% | 53 |
+| ETCUSDT | 4h | Rolling VWAP Reversion | 62.5% | 75.0% | +10.9% | −6.6% | −21.4% | 33 |
+| GRTUSDT | 4h | RSI Mean Reversion | 87.5% | 87.5% | +11.0% | 0.0% | −20.2% | 21 |
+| DOTUSDT | 4h | Bollinger Breakout | 75.0% | 87.5% | +8.8% | −25.1% | −27.9% | 44 |
+| CRVUSDT | 1d | Bollinger Mean Reversion | 87.5% | 50.0% | +15.6% | −22.8% | −37.4% | 18 |
+| UNIUSDT | 1d | Rolling VWAP Reversion | 62.5% | 62.5% | +15.8% | −6.0% | −16.5% | 7 |
+| SEIUSDT | 1d | Rolling VWAP Reversion | 75.0% | 75.0% | +7.3% | −21.7% | −34.2% | 14 |
 
 The selection favours *strategy* diversification over *symbol* diversification,
 because crypto assets are heavily correlated with each other while breakout,
-reversion and momentum fail in different conditions. Additions are also capped at
-0.80 correlation of daily returns against everything already in the book, which
-is why GRTUSDT and DOTUSDT are absent despite winning seven of eight quarters
-each — both sit above 0.82 against DOGEUSDT, so buying them is mostly buying more
-DOGEUSDT.
+reversion and momentum fail in different conditions.
 
-AAVEUSDT, ATOMUSDT, ETHUSDT and CHZUSDT reach drawdowns of 33–37% on their own,
+Additions used to be capped at 0.80 correlation of daily returns against
+everything already in the book, which is why GRTUSDT and DOTUSDT were absent for
+several phases despite winning seven and six of eight quarters. That cap was
+replaced, because it measured the wrong thing. Correlated *prices* only produce
+correlated *losses* if the strategies are in the market at the same time, and
+these are mostly reversion rules with different lookbacks and thresholds, so
+they rarely are. Measured over 501 days of the current book: the highest
+position overlap between any two allocations is a Jaccard index of 0.45, the
+average number of simultaneous positions is 3.3, the maximum ever observed is 9
+of 17, and there are 23 days with no position at all. The criterion is now
+overlap rather than price correlation.
+
+AAVEUSDT, CRVUSDT, ETHUSDT and SEIUSDT reach drawdowns of 34–37% on their own,
 before any correlation with the rest of the book. They are the four worth
-watching. CHZUSDT is also the one entry that beats the coin far more often than
-it makes money — 87.5% against 50.0% — which is a strategy surviving a bear
-market rather than one finding profit in it.
+watching. GRTUSDT is the opposite case and worth reading carefully: a worst
+quarter of exactly 0.0% does not mean it cannot lose, it means that in the worst
+of its eight quarters the strategy never took a trade. An untested quarter is
+not a survived one.
 
 Each allocation trades a fixed quote amount rather than the whole account, so
 live returns scale to roughly a tenth of the single-strategy backtest figures.
 That is the intended trade-off: less concentration for less variance. Fully
-deployed, eleven positions at 500 USDT is 5500 of the 10 000 notional.
+deployed, seventeen positions at 500 USDT would be 8500 of the 10 000 notional —
+but the overlap measurement above says the realistic peak is closer to 4500, and
+the typical commitment closer to 1650.
 
 ## Using the dashboard
+
+The sidebar has five views, and they are ordered by how often you need them.
+
+| Menu | What it is for |
+| --- | --- |
+| **Painel** | The state of the money right now: equity curve, P&L broken into realised and open, win rate, profit factor, drawdown, Sharpe, and what every allocation is currently watching. The page to open first and to leave open. |
+| **Laboratório** | Where allocations come from. Runs the parameter search over history, ranks candidates on out-of-sample results only, and lets you promote the survivors into the live book. Nothing here trades; it produces candidates. |
+| **Operações** | The audit trail. Every buy and sell in the order they happened, and the same trades grouped by coin with the signal that opened and closed each one. Answers "what did it do, and why". |
+| **Validação** | Whether the book deserves real money. A checklist that can say no, plus the walk-forward table behind it — each allocation re-tested quarter by quarter on the parameters it is actually deployed with. |
+| **Ajustes** | Execution mode (`paper` or `testnet`), size per order, portfolio risk limits, and the list of active allocations. The only view that changes what the bot does. |
 
 1. **Laboratório** — pick pairs and timeframes, hit *Rodar pesquisa*. Prefer
    `1d` and `4h` with 5000 candles, for the reason above. A few minutes later
@@ -405,7 +441,13 @@ deployed, eleven positions at 500 USDT is 5500 of the 10 000 notional.
    to it, what is left — because a single total hides the difference between
    money that is banked and money that can still evaporate. The estimated fees
    paid so far are shown underneath; they are already deducted from every other
-   number on the page.
+   number on the page. *Sinais agora* lists every allocation with the one
+   comparison it is waiting on — the value measured on the last closed candle,
+   the level it has to cross, and the distance between them — sorted so the
+   closest to firing is at the top. Seventeen allocations on 4h and 1d candles
+   are silent most of the time, and this panel is what distinguishes a bot that
+   is waiting from a bot that is stuck. For a coin already held the row flips to
+   the exit rule, because that is the decision actually pending.
 6. **Operações** opens with *Compras e vendas*, the raw order ledger: every buy
    and every sell in the order they happened, with the cash movement, the
    realised result where there is one, and the reason. It is not grouped,
@@ -415,7 +457,11 @@ deployed, eleven positions at 500 USDT is 5500 of the 10 000 notional.
    words, the indicator values at that candle, the price paid, and the time
    between them. The card names the candle the rule fired on, which is not
    always the candle the order was sent on: orders are filled on the open after
-   the decision, so the two are normally one candle apart. The *Simulado* toggle
+   the decision, so the two are normally one candle apart. The *Sinal de compra*
+   column carries the decisive pair on one line — the measured value against the
+   level it crossed — which is the same number *Sinais agora* tracks before the
+   trade exists. Simulated rows carry it too, so the column is readable before
+   the bot has made a single live trade. The *Simulado* toggle
    replays the same allocations over recent history, so the view is readable
    before the bot has closed its first trade; those rows are a simulation, not
    money made.
@@ -481,25 +527,40 @@ lose money.
 
 The **Validação** view answers the question directly, and is designed to be able
 to say no. A backtest describes data the strategy was chosen against; only a
-forward run describes data nobody has seen. Five conditions have to hold:
+forward run describes data nobody has seen. Six conditions have to hold, and
+they fall into two tiers that clear on different clocks.
+
+The **execution tier** — parity and coverage — asks whether the engine does what
+the model says. That is a systematic property: a timing or pricing defect
+appears in the first two or three paired trades, because each live trade is
+compared against its own backtest twin rather than pooled into an average. It is
+expected to clear within weeks, and until it does nothing else on the list means
+anything, because a book that is profitable while filling somewhere the backtest
+never modelled is profitable by accident.
+
+The **evidence tier** — sample, tracking, drawdown — asks whether the edge is
+still there, which no amount of careful execution can answer and only time can.
 
 | Gate | Threshold | Why that number |
 | --- | --- | --- |
 | Every allocation still passes walk-forward | all of them | A book is only as validated as its worst member |
 | Live trades matching their backtest twin | 10 | The edge is established by walk-forward, on hundreds of trades. What a live run uniquely proves is that the engine executes the model — same decision candle, fill against the following open, cost inside the assumption — and an execution defect is systematic, so it shows up in the first few paired trades rather than needing a statistical sample |
 | Candle closes the bot was awake for | 90% | A candle slept through is invisible afterwards: a strategy that never fired and a strategy that fired while nobody was listening leave the same empty record |
-| Realised result not worse than the expected worst quarter | −8.52% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
-| Observed drawdown within the configured limit | 20% | Roughly 2.3× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
-
-The statistical thresholds that a longer run would satisfy — 30 closed trades,
-90 days — are still shown next to the live results, as context rather than as a
-blocker.
+| Closed trades, and days of running | 100 **and** 270 | 270 days is three complete 90-day walk-forward windows, which is the smallest number of realised quarters that can be placed inside the distribution of measured ones — a single quarter is one draw and is consistent with almost any hypothesis. 100 closed trades puts the win rate inside roughly ±10 points; at 30 the interval is ±18 and separates nothing. Both bounds have to clear, because 100 trades inside one volatile month samples one regime, and nine quiet months with forty trades is time without evidence |
+| Realised result not worse than the expected worst quarter | −11.97% of capital | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured |
+| Observed drawdown within the configured limit | 20% | Roughly 1.7× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
 
 The expectation is scaled to the size actually traded — each allocation's median
 quarter divided by three, times its share of capital — which for the current
-book of 11 allocations at 500 of 10,000 comes to **+1.69% per month across about
-21 trades**, against a worst measured quarter of **−8.52%**. Those are the
+book of 17 allocations at 500 of 10,000 comes to **+3.08% per month across about
+27 trades**, against a worst measured quarter of **−11.97%**. Those are the
 numbers a real account should be expected to reproduce before it is funded.
+
+At that trade rate the 100-trade bound arrives in under four months, so the
+270-day bound is the one that actually binds — which is the intended shape. The
+trade count exists to stop a book being judged on too few results; the calendar
+exists to stop it being judged on too few market conditions, and the second is
+the harder problem.
 
 The API keys in `.env` are testnet-only. Never commit real keys — `.env` is
 already in `.gitignore`.

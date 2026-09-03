@@ -268,12 +268,21 @@ def _snapshot(frame: Any, bar: int) -> dict[str, float]:
     return values
 
 
-def _decision_bar(frame: Any, bar: int) -> dict[str, Any]:
-    """Time and close of the candle a decision was read from."""
-    return {
+def _decision_bar(frame: Any, bar: int, strategy: Any = None,
+                  series: Any = None, kind: str = "entry") -> dict[str, Any]:
+    """Time and close of the candle a decision was read from.
+
+    With a strategy attached it also carries that strategy's trigger reading at
+    the same bar, so a simulated trade and a live one describe themselves in
+    the same terms.
+    """
+    out = {
         "bar_time": str(frame["time"].iloc[bar]),
         "bar_close": round(float(frame["close"].iloc[bar]), 8),
     }
+    if strategy is not None:
+        out["trigger"] = strategy.reading(frame, kind, bar=bar, series=series)
+    return out
 
 
 def allocation_history(bars: int = HISTORY_BARS) -> list[dict[str, Any]]:
@@ -326,8 +335,15 @@ def allocation_history(bars: int = HISTORY_BARS) -> list[dict[str, Any]]:
                 # The decision candle, not the fill: an order is sent at the open
                 # of the bar after the one the rule fired on, so the timestamp in
                 # the row and the numbers in the card are one bar apart.
-                "entry_signal": _decision_bar(frame, trade["entry_bar"]),
-                "exit_signal": _decision_bar(frame, trade["exit_bar"]),
+                #
+                # The trigger is the same pair the live signal cards show, read
+                # at the bar the rule fired on. Without it the history table
+                # would have an empty column exactly where the reader is being
+                # taught what the number means.
+                "entry_signal": _decision_bar(frame, trade["entry_bar"],
+                                              strategy, indicator_frame, "entry"),
+                "exit_signal": _decision_bar(frame, trade["exit_bar"],
+                                             strategy, indicator_frame, "exit"),
                 "duration_seconds": round(trade["bars"] * bar_seconds) if bar_seconds else None,
                 "pnl": round(trade["return_pct"] / 100 * quote, 4),
                 "sized_at_quote": quote,
@@ -345,25 +361,34 @@ def allocation_history(bars: int = HISTORY_BARS) -> list[dict[str, Any]]:
     return out
 
 
-# How much live evidence is enough to stop guessing. Both numbers are chosen,
-# not derived, and the reasoning is the point: under about 30 closed trades a
-# win rate carries a confidence interval close to +/-18 points, which cannot
-# separate a good book from a bad one; and under 90 days there is not one full
-# walk-forward test window to compare against, so "realised" and "expected" are
-# not the same unit. These are the statistical-confirmation thresholds, and
-# they are reported rather than gated on - see below for why.
-MIN_LIVE_TRADES = 30
-MIN_LIVE_DAYS = 90
+def plural(count: int, one: str, many: str) -> str:
+    """Count plus the right noun. Gate details are read, not parsed."""
+    return f"{count} {one if count == 1 else many}"
 
-# The gating thresholds. A live run is asked to prove execution, not to
-# re-establish the edge: the edge already has hundreds of walk-forward trades
-# behind it, and re-earning that evidence in real time would take a year. What
-# only a live run can show is whether the engine fills where the model assumed,
-# on the candle the model assumed, at the cost the model assumed - and a
-# systematic defect there shows up within a handful of matched trades, because
-# each one is compared against its own twin rather than pooled into an average.
+
+# The checklist has two tiers, and they answer different questions.
+#
+# The execution tier asks whether the engine does what the model says. That is
+# a systematic property: a timing or pricing defect appears in the first two or
+# three paired trades, because each live trade is compared against its own twin
+# rather than pooled into an average. It clears early, and until it clears
+# nothing else in the checklist means anything - a book that is profitable
+# while filling somewhere the backtest never modelled is profitable by
+# accident.
 MIN_PARITY_TRADES = 10
 MIN_COVERAGE_PCT = 90.0
+
+# The evidence tier asks whether the edge is still there, which no amount of
+# careful execution can answer and only time can. Nine months is three complete
+# 90-day walk-forward windows, and that is the whole reason for the number:
+# each quarter lived through can be placed inside the distribution of quarters
+# the validation measured, so "realised" and "expected" are finally the same
+# unit. One quarter cannot be placed in a distribution; three can. A hundred
+# closed trades puts the win rate inside roughly +/-10 points, which is narrow
+# enough to separate a book that works from one that does not - at thirty the
+# interval is +/-18 and separates nothing.
+MIN_LIVE_DAYS = 270
+MIN_LIVE_TRADES = 100
 
 
 def readiness() -> dict[str, Any]:
@@ -463,16 +488,29 @@ def readiness() -> dict[str, Any]:
             "progress": min(coverage_pct / MIN_COVERAGE_PCT, 1.0),
         },
         {
+            "key": "sample",
+            # Time and trades are not interchangeable: a book can reach a
+            # hundred trades in a month of one volatile regime, or sit through
+            # nine months and take forty. Both bounds have to clear.
+            "label": (f"{MIN_LIVE_TRADES} operações encerradas"
+                      f" e {MIN_LIVE_DAYS // 30} meses de operação"),
+            "ok": len(closed) >= MIN_LIVE_TRADES and days_live >= MIN_LIVE_DAYS,
+            "detail": (f"{plural(len(closed), 'operação encerrada', 'operações encerradas')}"
+                       f" em {days_live:.0f} de {MIN_LIVE_DAYS} dias"),
+            "progress": min(min(len(closed) / MIN_LIVE_TRADES,
+                                days_live / MIN_LIVE_DAYS), 1.0),
+        },
+        {
             "key": "tracking",
             # A book can be profitable and still be broken: what matters is
             # whether it behaves like the thing that was measured.
             "label": "Resultado realizado não pior que o pior trimestre esperado",
-            "ok": (not pending and len(closed) >= MIN_PARITY_TRADES
+            "ok": (not pending and len(closed) >= MIN_LIVE_TRADES
                    and realised / start * 100 >= worst_quarter),
             "detail": ("calculando..." if pending else
                        f"realizado {realised / start * 100:+.2f}% do capital,"
                        f" pior trimestre esperado {worst_quarter:+.2f}%"
-                       + ("" if len(closed) >= MIN_PARITY_TRADES
+                       + ("" if len(closed) >= MIN_LIVE_TRADES
                           else " — amostra ainda pequena demais para comparar")),
         },
         {

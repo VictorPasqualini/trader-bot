@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import backtest as bt
 from . import coverage
 from . import parity
-from . import report, research, storage
+from . import report, research, signals, storage
 from . import portfolio, screening, walkforward
 from . import strategies as st
 from .config import WEB_DIR, settings
@@ -36,7 +36,7 @@ async def lifespan(_app: FastAPI):
     bot.stop()
 
 
-app = FastAPI(title="Trader Bot", version="1.0.0", docs_url="/api/docs", lifespan=lifespan)
+app = FastAPI(title="Hodlster", version="1.0.0", docs_url="/api/docs", lifespan=lifespan)
 
 
 @app.exception_handler(BinanceError)
@@ -160,6 +160,12 @@ def parity_report(limit: int = 50) -> dict[str, Any]:
 def coverage_report() -> dict[str, Any]:
     """Which candle closes the bot was awake for, and which it slept through."""
     return coverage.report()
+
+
+@app.get("/api/signals")
+def live_signals(refresh: bool = False) -> dict[str, Any]:
+    """What each allocation is watching, and how close it is to acting."""
+    return signals.snapshot(get_config().get("allocations") or [], refresh=refresh)
 
 
 @app.get("/api/readiness")

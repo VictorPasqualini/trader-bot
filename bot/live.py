@@ -267,7 +267,7 @@ class TraderBot:
             bars_since = len(wanted) - 1 - index
             if bars_since:
                 trigger = closed.iloc[: index + 1]
-        info = strategy.explain(trigger)
+        info = strategy.explain(trigger, "entry" if kind == "entry" else "exit")
         context = {
             "kind": kind,
             "rule": rule,
@@ -277,6 +277,7 @@ class TraderBot:
             "bar_close": round(float(trigger["close"].iloc[-1]), 8),
             "market_price": round(price, 8),
             "values": info["values"],
+            "trigger": info["trigger"],
         }
         if bars_since:
             context["bars_since_trigger"] = bars_since

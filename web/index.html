@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Trader Bot</title>
+<title>Hodlster</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="/assets/style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
 </head>
 <body>
 
@@ -14,9 +14,10 @@
 
   <aside class="sidebar">
     <div class="brand">
-      <div class="brand-mark">TB</div>
+      <img class="brand-mark" src="/assets/logo.svg" width="36" height="36"
+           alt="Hodlster">
       <div class="brand-text">
-        <strong>Trader Bot</strong>
+        <strong>Hodlster</strong>
         <span id="brand-mode">testnet</span>
       </div>
     </div>
@@ -157,6 +158,27 @@
           <div id="breakdown-list" class="bar-list"></div>
           <p class="empty" id="breakdown-empty">Sem operações encerradas ainda.</p>
         </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Sinais agora</h2>
+          <span class="muted" id="signals-summary">—</span>
+        </div>
+        <p class="hint" id="signals-hint">O que cada estratégia está medindo na última
+          vela fechada e quanto falta para disparar. Quem já está comprado mostra a
+          regra de saída que está esperando.</p>
+        <div class="table-wrap">
+          <table id="signals-table">
+            <thead>
+              <tr><th>Par</th><th>Estratégia</th><th>Espera</th>
+                  <th class="num">Valor agora</th><th class="num">Nível</th>
+                  <th class="num">Distância</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="signals-empty">Nenhuma alocação configurada.</p>
       </div>
 
       <div class="panel">
