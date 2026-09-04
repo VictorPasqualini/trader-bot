@@ -101,12 +101,20 @@ CREATE TABLE IF NOT EXISTS equity_snapshots (
     open_positions INTEGER NOT NULL
 );
 
+-- An identical event repeating is one fact, not many. A two-hour network
+-- outage polling once a minute writes 120 rows of the same sentence, which
+-- pushes everything that happened before it out of any readable window and
+-- makes the log least useful exactly when something is wrong. Consecutive
+-- repeats collapse onto one row instead: `first_ts` keeps when it started,
+-- `ts` moves to the latest, `repeats` counts them.
 CREATE TABLE IF NOT EXISTS events (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    ts      TEXT NOT NULL,
-    level   TEXT NOT NULL,
-    message TEXT NOT NULL,
-    context TEXT
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts       TEXT NOT NULL,
+    first_ts TEXT,
+    level    TEXT NOT NULL,
+    message  TEXT NOT NULL,
+    repeats  INTEGER NOT NULL DEFAULT 1,
+    context  TEXT
 );
 
 -- What the book was predicted to do, written when the book changed and never
@@ -159,6 +167,8 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("orders", "position_id", "INTEGER"),
     ("orders", "fee", "REAL"),
     ("orders", "fee_asset", "TEXT"),
+    ("events", "first_ts", "TEXT"),
+    ("events", "repeats", "INTEGER NOT NULL DEFAULT 1"),
 )
 
 
@@ -211,9 +221,28 @@ def get_state(key: str, default: Any = None) -> Any:
 # --------------------------------------------------------------------- events
 
 def log_event(level: str, message: str, context: dict[str, Any] | None = None) -> None:
+    """Record one event, folding it into the previous row if it is the same one.
+
+    Only the immediately preceding row is considered, so an event that recurs
+    with anything in between still gets its own line and the sequence stays
+    readable. The context of the first occurrence is kept rather than the
+    latest: for the case this exists for - a stack trace repeating every poll -
+    they are the same text, and the first one is the one with the timestamp
+    that matters.
+    """
+    stamp = now()
+    previous = query_one("SELECT * FROM events ORDER BY id DESC LIMIT 1")
+    if previous and previous["level"] == level and previous["message"] == message:
+        execute(
+            "UPDATE events SET ts = ?, repeats = repeats + 1,"
+            " first_ts = COALESCE(first_ts, ts) WHERE id = ?",
+            (stamp, previous["id"]),
+        )
+        return
     execute(
-        "INSERT INTO events(ts, level, message, context) VALUES(?, ?, ?, ?)",
-        (now(), level, message, json.dumps(context) if context else None),
+        "INSERT INTO events(ts, first_ts, level, message, repeats, context)"
+        " VALUES(?, ?, ?, ?, 1, ?)",
+        (stamp, stamp, level, message, json.dumps(context) if context else None),
     )
 
 

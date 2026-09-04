@@ -23,8 +23,15 @@ if (-not (Test-Path $python)) {
     throw "No virtualenv at $root\.venv - create it before registering the task."
 }
 
-$action = New-ScheduledTaskAction -Execute $python `
-    -Argument 'run.py serve --no-browser' -WorkingDirectory $root
+$log = Join-Path $root 'data\serve.log'
+
+# Wrapped in cmd so the output goes somewhere. pythonw has no console, and a
+# startup failure - a port already held by a manually started copy is the
+# common one - would otherwise leave no trace at all: the task would report
+# success, and nothing would be listening.
+$action = New-ScheduledTaskAction -Execute 'cmd.exe' `
+    -Argument "/c `"`"$python`" run.py serve --no-browser >> `"$log`" 2>&1`"" `
+    -WorkingDirectory $root
 
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 
@@ -51,3 +58,4 @@ Write-Output 'Sleep and hibernate disabled.'
 
 Start-ScheduledTask -TaskName 'Pouch'
 Write-Output 'Started. Dashboard: http://127.0.0.1:8777'
+Write-Output "Log: $log"

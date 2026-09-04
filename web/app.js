@@ -423,14 +423,29 @@ function renderBreakdown(rows) {
     </div>`).join('');
 }
 
+// Event messages carry exception text, which can contain anything.
+function escape(value) {
+  return String(value).replace(/[&<>"]/g,
+    (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+}
+
 function renderEvents(events) {
   $('#events-list').innerHTML = events.length
-    ? events.map((e) => `
+    ? events.map((e) => {
+      // A collapsed row covers a span, so show where it started as well as the
+      // count - "120x" without "since 01:40" says nothing about the outage.
+      const repeats = e.repeats > 1
+        ? `<span class="repeats" title="primeira em ${dt(e.first_ts)}">${e.repeats}x</span>`
+        : '';
+      const since = e.repeats > 1 && e.first_ts
+        ? `<span class="muted">desde ${dt(e.first_ts)}</span>` : '';
+      return `
       <li>
         <time>${dt(e.ts)}</time>
         <span class="level ${e.level}">${e.level}</span>
-        <span>${e.message}</span>
-      </li>`).join('')
+        <span>${escape(e.message)} ${repeats} ${since}</span>
+      </li>`;
+    }).join('')
     : '<li><span class="muted">Sem atividade ainda.</span></li>';
 }
 

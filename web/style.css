@@ -652,3 +652,12 @@ table.compact th, table.compact td { padding: 5px 8px; font-size: 12px; }
 }
 .expect-row span { color: var(--muted); }
 .expect-row strong { font-variant-numeric: tabular-nums; }
+
+.repeats {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--neg-soft, rgba(220, 80, 80, .15));
+  font-variant-numeric: tabular-nums;
+  font-size: .78rem;
+}
