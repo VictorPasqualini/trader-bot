@@ -458,6 +458,68 @@ async function loadLab() {
   renderLeaderboard(rows);
   const status = await api('/research/status');
   renderResearchProgress(status);
+  const [feeds, headlines] = await Promise.all([
+    api('/feeds'), api('/feeds/headlines?limit=12'),
+  ]);
+  renderFeeds(feeds);
+  renderHeadlines(headlines);
+}
+
+// Series whose past can be downloaded are already researchable; the rest are
+// worth showing precisely because the number that matters is how long they have
+// been accumulating, and that only goes up if the process stays alive.
+const FEED_LABELS = {
+  funding: ['Financiamento', 'perpétuos Binance, histórico completo desde 2020'],
+  open_interest: ['Contratos em aberto', 'retenção de 30 dias, só acumula daqui'],
+  long_short: ['Posição comprada', 'retenção de 30 dias, só acumula daqui'],
+  fear_greed: ['Medo e ganância', 'índice diário, histórico desde 2018'],
+  headlines: ['Manchetes', 'RSS público, carimbado na hora em que vimos'],
+};
+
+function renderFeeds(data) {
+  const chip = $('#feeds-state');
+  chip.textContent = data.running ? 'coletando' : 'parado';
+  chip.className = `chip ${data.running ? 'ok' : 'warn'}`;
+
+  const rows = [...data.feeds, data.news];
+  $('#feeds-list').innerHTML = rows.map((row) => {
+    const [name, note] = FEED_LABELS[row.feed] || [row.feed, ''];
+    const status = row.status || {};
+    // A feed that has never failed shows nothing; one that has shows the error,
+    // because a collector quietly returning zero rows for a week is the exact
+    // failure this whole panel exists to make impossible to miss.
+    const error = status.last_error
+      ? `<span class="feed-error" title="${escape(status.last_error)}">falhou</span>` : '';
+    return `
+    <div class="feed">
+      <div class="feed-name">${name} ${error}<span class="muted">${note}</span></div>
+      <div class="feed-nums">
+        <span><b>${(row.rows || 0).toLocaleString('pt-BR')}</b> linhas</span>
+        <span><b>${row.days || 0}</b> dias</span>
+        ${row.sources ? `<span><b>${row.sources}</b> fontes</span>` : ''}
+        ${row.symbols ? `<span><b>${row.symbols}</b> pares</span>` : ''}
+        <span class="muted">visto ${dt(status.last_run)}</span>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderHeadlines(rows) {
+  $('#feeds-headlines').innerHTML = rows.length
+    ? rows.map((row) => {
+      // Both timestamps are shown on purpose. When they disagree by hours, the
+      // reason not to train on the publisher's one is visible rather than
+      // asserted.
+      const lag = row.published_at
+        ? `<span class="muted" title="hora declarada pela fonte">publicado ${dt(row.published_at)}</span>` : '';
+      return `
+      <li>
+        <time>${dt(row.observed_at)}</time>
+        <span class="src">${escape(row.source)}</span>
+        <span>${escape(row.title)} ${lag}</span>
+      </li>`;
+    }).join('')
+    : '<li><span class="muted">Nenhuma manchete coletada ainda.</span></li>';
 }
 
 function renderLeaderboard(rows) {

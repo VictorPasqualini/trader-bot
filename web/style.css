@@ -661,3 +661,35 @@ table.compact th, table.compact td { padding: 5px 8px; font-size: 12px; }
   font-variant-numeric: tabular-nums;
   font-size: .78rem;
 }
+
+/* Market-context collection: one row per feed, then the headlines it saw. */
+.feeds { display: grid; gap: 2px; }
+.feed {
+  display: flex; justify-content: space-between; align-items: baseline;
+  gap: 16px; padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.feed:last-child { border-bottom: none; }
+.feed-name { font-size: 13px; font-weight: 600; }
+.feed-name .muted { display: block; font-weight: 400; font-size: 11px; margin-top: 2px; }
+.feed-nums {
+  display: flex; gap: 14px; align-items: baseline; flex-shrink: 0;
+  font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.feed-nums b { color: var(--text); font-weight: 600; }
+.feed-error {
+  margin-left: 6px; padding: 0 6px; border-radius: 8px;
+  background: var(--neg-soft); color: var(--neg); font-size: .72rem;
+}
+h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+
+.headlines { list-style: none; margin: 0; padding: 0; }
+.headlines li {
+  display: grid; grid-template-columns: 58px 88px 1fr; gap: 10px;
+  align-items: baseline; padding: 6px 0; font-size: 12px;
+}
+.headlines time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.headlines .src {
+  color: var(--muted); font-size: 11px; text-transform: uppercase;
+  letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis;
+}
+.headlines .muted { margin-left: 6px; font-size: 11px; }

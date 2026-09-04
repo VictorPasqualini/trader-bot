@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from . import backtest as bt
 from . import coverage
+from . import feeds
 from . import parity
 from . import report, research, signals, storage
 from . import portfolio, screening, tracking, walkforward
@@ -32,8 +33,13 @@ async def lifespan(_app: FastAPI):
     if config.get("enabled") and config.get("allocations"):
         bot.start()
         storage.log_event("info", "Bot resumed after restart")
+    # Started with the server rather than with the bot, and never stopped by
+    # /api/bot/stop. The dataset's value is being unbroken, so pausing trading
+    # to change a strategy must not put a hole in it.
+    feeds.collector.start()
     yield
     bot.stop()
+    feeds.collector.stop()
 
 
 app = FastAPI(title="Pouch", version="1.0.0", docs_url="/api/docs", lifespan=lifespan)
@@ -236,6 +242,46 @@ def events(limit: int = 60) -> list[dict[str, Any]]:
 @app.get("/api/strategies")
 def strategies() -> list[dict[str, Any]]:
     return st.catalog()
+
+
+# --------------------------------------------------------------- market feeds
+
+@app.get("/api/feeds")
+def feeds_coverage() -> dict[str, Any]:
+    """What market context has been collected, and how far back it reaches."""
+    return feeds.coverage()
+
+
+@app.get("/api/feeds/series")
+def feeds_series(feed: str, symbol: str | None = None,
+                 limit: int = 500) -> list[dict[str, Any]]:
+    return feeds.series(feed, symbol, limit)
+
+
+@app.get("/api/feeds/headlines")
+def feeds_headlines(limit: int = 50) -> list[dict[str, Any]]:
+    return feeds.headlines(limit)
+
+
+@app.post("/api/feeds/collect")
+def feeds_collect(feed: str | None = None) -> dict[str, Any]:
+    """Poll now, without waiting for the cadence. For checking, not for use."""
+    return {"written": feeds.collector.run_once(only=feed)}
+
+
+@app.post("/api/feeds/backfill")
+def feeds_backfill() -> dict[str, Any]:
+    """Pull the two series that have downloadable history, once.
+
+    Funding pages back to 2020 and Fear and Greed to 2018. Everything else has
+    a retention window measured in days and can only be accumulated forward,
+    which is the whole reason the collector exists.
+    """
+    return {
+        "fear_greed": feeds.backfill_fear_greed(),
+        "positioning": feeds.backfill_positioning(),
+        "funding": feeds.backfill_funding(),
+    }
 
 
 # ------------------------------------------------------------------ research

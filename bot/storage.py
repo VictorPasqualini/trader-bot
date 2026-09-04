@@ -139,6 +139,52 @@ CREATE TABLE IF NOT EXISTS expectations (
 );
 CREATE INDEX IF NOT EXISTS idx_expectations_from ON expectations(effective_from);
 
+-- Market context that the candle history does not carry, captured with the
+-- one property no public archive preserves: when we actually saw it.
+-- `source_ts` is what the source says the observation is about, `observed_at`
+-- is when this process received it. Only the second is safe to condition a
+-- model on. See bot/feeds.py for why the distinction decides whether any of
+-- this is usable.
+CREATE TABLE IF NOT EXISTS feed_observations (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    feed        TEXT NOT NULL,
+    -- NULL for market-wide series such as Fear and Greed.
+    symbol      TEXT,
+    source_ts   TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    value       REAL,
+    detail      TEXT
+);
+-- Polls overlap on purpose: every request asks for far more history than one
+-- interval, so a gap heals itself on the next successful call. This index is
+-- what makes that free - the overlap collapses into no-ops instead of
+-- duplicates. COALESCE because SQLite treats NULLs as distinct in a unique
+-- index, which would let every poll re-insert the whole Fear and Greed series.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_point
+    ON feed_observations(feed, COALESCE(symbol, ''), source_ts);
+CREATE INDEX IF NOT EXISTS idx_feed_symbol
+    ON feed_observations(feed, symbol, source_ts);
+
+-- Headlines are stored separately because the point-in-time question is
+-- sharper here: `published_at` comes from the publisher and is routinely
+-- earlier than the moment the item was readable, so a model that trains on it
+-- is reading news from the future. `observed_at` is the poll that first
+-- returned the item, and is the only timestamp that cannot run ahead.
+CREATE TABLE IF NOT EXISTS feed_headlines (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT NOT NULL,
+    guid         TEXT NOT NULL,
+    published_at TEXT,
+    observed_at  TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    link         TEXT,
+    summary      TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_headline_guid
+    ON feed_headlines(source, guid);
+CREATE INDEX IF NOT EXISTS idx_headline_seen
+    ON feed_headlines(observed_at);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -192,6 +238,31 @@ def execute(sql: str, params: Iterable[Any] = ()) -> sqlite3.Cursor:
         cursor = conn.execute(sql, tuple(params))
         conn.commit()
         return cursor
+
+
+def execute_many(sql: str, rows: Iterable[Any]) -> int:
+    """Run one statement over many rows, returning how many actually landed.
+
+    The count comes from the connection's change counter rather than from
+    ``cursor.rowcount``, which reports the number of statements attempted. The
+    difference matters for the ``INSERT OR IGNORE`` that the feed collectors
+    use: what is worth knowing there is how much of the batch was new, and
+    every poll deliberately re-sends rows it already holds.
+    """
+    rows = list(rows)
+    if not rows:
+        return 0
+    with _write_lock:
+        conn = connection()
+        before = conn.total_changes
+        conn.executemany(sql, rows)
+        conn.commit()
+        return conn.total_changes - before
+
+
+def dumps(value: Any) -> str | None:
+    """JSON for a column that holds it, or NULL for nothing worth storing."""
+    return json.dumps(value) if value else None
 
 
 def query(sql: str, params: Iterable[Any] = ()) -> list[dict[str, Any]]:

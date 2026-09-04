@@ -632,6 +632,7 @@ bot/
   parity.py       every live trade against the trade the backtest would have made
   coverage.py     which candle closes the bot was actually awake for
   tracking.py     the expectation frozen when the book shipped, against what happened
+  feeds.py        point-in-time collection of market context (see below)
   report.py       dashboard aggregations
   storage.py      SQLite persistence
   api.py          FastAPI app
@@ -666,6 +667,56 @@ US IP ranges with HTTP 451 — which rules out Google Cloud's free `e2-micro`
 entirely, since it is only free in US regions. Render, Railway and Fly no longer
 offer a free always-on process, and a GitHub Actions cron has no persistent
 disk for the database and no guarantee it runs on time.
+
+## Collecting market context
+
+A model that predicts direction from funding, positioning, sentiment or news can
+only be tested honestly against data that was *available* when the decision would
+have been made. Two separate problems make public history unusable for that, and
+`bot/feeds.py` exists because neither can be solved later.
+
+**Retention.** Binance keeps roughly 30 days of open interest and long/short
+ratio. A walk-forward needs eight quarterly windows. That history is not
+expensive, it is gone — the only way to obtain it is to begin writing it down,
+which is why collection starts now rather than when there is a model to use it.
+
+**Backdating.** News feeds report a `published_at` set by the publisher. Items
+are edited, re-dated and indexed late, so that timestamp is routinely earlier
+than the moment the item was readable. A model trained on it learns from
+headlines that had not appeared yet, scores well out of sample, and collapses
+live. It is the most common way a sentiment model is wrong and it is invisible in
+every metric until real money is on it.
+
+So every row carries two timestamps and never conflates them: `source_ts` is what
+the source says the observation is about, and `observed_at` is when this process
+received it. Only `observed_at` may be conditioned on. It is accurate to one poll
+interval and it cannot run ahead of reality, which is the only property that
+matters.
+
+| Feed | Source | Past available | Cadence |
+| --- | --- | --- | --- |
+| Funding rate | Binance perpetuals | full, from 2020 | hourly |
+| Open interest | Binance perpetuals | 30 days, then forward only | hourly |
+| Long/short ratio | Binance perpetuals | 30 days, then forward only | hourly |
+| Fear and Greed | alternative.me | full, from 2018 | 6-hourly |
+| Headlines | four public RSS feeds | none, forward only | 10 minutes |
+
+Every poll deliberately requests far more history than one interval, and a unique
+index on `(feed, symbol, source_ts)` turns the overlap into no-ops. That is the
+gap-healing mechanism: a week of downtime is repaired by the next successful
+call rather than becoming a permanent hole.
+
+Fear and Greed is collected as a **control**, not as a hope. Measured against
+next-day returns over 1497 days it explains nothing — correlation +0.015 on BTC,
+and no threshold rule beats the base rate. A feature known to be inert is useful:
+a model that finds signal in it has found overfitting, and that is worth being
+able to detect.
+
+Collection runs on the server process, not the trading loop, and `/api/bot/stop`
+does not stop it. The dataset's whole value is being unbroken; pausing trading to
+change a strategy must not put a hole in it. `POST /api/feeds/backfill` pulls the
+two series that have downloadable history, and is worth running once on a new
+install. Progress is on the Laboratório tab.
 
 ## Interpreting results honestly
 

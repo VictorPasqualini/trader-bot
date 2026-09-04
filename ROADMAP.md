@@ -1188,6 +1188,77 @@ it is reached over an SSH tunnel until it has authentication.
 **Outcome:** the four parallel items shipped, coverage has an honest reset, and
 the deployment path off a desktop is written down. What remains is time.
 
+## Phase 17 — Writing down what cannot be bought later ✅
+
+The question was whether a predictor of direction could be built from market
+conditions, news and price history, and run alongside the forward test without
+disturbing it. Answering it properly meant measuring three things first, and two
+of the three answers ruled out most of the obvious approaches.
+
+### The hurdle is arithmetic, and it is high
+
+A directional model that trades every candle breaks even at
+`p = 0.5 + cost / (2 x mean|return|)`. With a 0.30% round trip:
+
+| Interval | BTCUSDT | XLMUSDT | IMXUSDT |
+| --- | --- | --- | --- |
+| 1h | **113.0%** | 83.4% | 78.2% |
+| 4h | 74.2% | 63.2% | 61.5% |
+| 1d | 58.8% | 55.5% | 53.8% |
+
+BTC at one hour requires an accuracy above 100%: the round trip exceeds the
+average move entirely, so no model of any quality can pay for the trade. This is
+not a statement about difficulty, it is a statement about the cost line. Any
+prediction work targets daily bars, where the bar is roughly 55%.
+
+### The feature everyone reaches for first does nothing
+
+Fear and Greed is the only free sentiment series with enough history to walk
+forward — 3134 daily readings back to 2018. Aligned to the *next* day's return
+over 1497 days, the correlation is +0.0149 on BTC, +0.0234 on ETH, +0.0349 on
+XLM. No threshold rule beats the base rate: extreme fear buys at 50.2% accuracy
+against a 49.8% always-long baseline, needing 58.8%.
+
+It is now collected anyway, as a control. A model that finds signal in a feature
+measured to be inert has found overfitting, and being able to detect that later
+is worth the storage.
+
+### The data that matters cannot be bought
+
+Binance retains about 30 days of open interest and long/short ratio. A
+walk-forward needs eight quarterly windows. There is no vendor and no price for
+that history — it simply does not exist any more. News is worse: feeds report a
+publisher-set `published_at` that is routinely earlier than the moment the item
+was readable, so a model trained on it reads tomorrow's paper, scores well out of
+sample, and fails live in a way no backtest metric reveals.
+
+That reframes the whole item. The blocking constraint is not modelling, it is
+that the dataset does not exist and every day of not collecting is a day
+permanently missing. So `bot/feeds.py` collects rather than predicts, and every
+row carries two timestamps: `source_ts` for aligning a series to a candle, and
+`observed_at` for what a model may condition on. The second is accurate to one
+poll interval and can never run ahead of reality.
+
+Five feeds, all keyless: funding rate, open interest, long/short ratio, Fear and
+Greed, and headlines from four public RSS sources. Polls deliberately over-fetch
+and a unique index turns the overlap into no-ops, so a week of downtime heals on
+the next successful call instead of leaving a hole. Failures are per-feed: one
+publisher down is a gap in one column, not in the dataset.
+
+**Evidence:** backfill pulled 117,730 funding observations from 2020-01-01 across
+18 symbols, 3134 Fear and Greed readings from 2018-02-01, and the full 20-day
+retention window of open interest and long/short. Repeating every collector
+wrote 0 rows. Measured publication lag across 112 headlines: median 23 hours
+between the publisher's timestamp and the first poll that returned the item —
+which is the size of the leak that training on `published_at` would introduce.
+
+The collector runs on the server process rather than the trading loop, and
+stopping the bot does not stop it. The dataset's value is being unbroken.
+
+**Outcome:** nothing is predicted yet, and deliberately so. In twelve months
+there will be a point-in-time dataset that can be walked forward honestly. Until
+then the only claim is that the clock has started.
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -1209,7 +1280,17 @@ beating a long benchmark with a long-only book in a rally is not the thing this
 book is for. Both need the forward test to finish first — changing what gets
 traded now would end the test of what was measured.
 
-### 3. Short and market-neutral
+### 3. A directional model, once there is data to test it on
+
+Phase 17 started the clock. When open interest, positioning and headlines have a
+year of point-in-time history, the model goes in as a `Strategy` in the existing
+catalogue — not as a parallel evaluation path. It then faces the same
+walk-forward, the same regime labelling and the same harsh verdict as everything
+else. A model judged by a looser rule than the rest of the book will always look
+better than the rest of the book. Target daily bars: at 1h the cost line requires
+an accuracy above 100% on BTC.
+
+### 4. Short and market-neutral
 
 Everything so far is spot-long-only, which means every strategy is structurally
 long crypto beta. That is why beating buy-and-hold is so hard: the benchmark is
@@ -1263,3 +1344,9 @@ market-neutral comparison.
 | Coverage baseline moves only at a real change of deployment | The exclusion is visible in the report and there is no button for it; resetting it for a nicer number would leave the number measuring nothing |
 | Host in a non-US region | Binance answers US IP ranges with HTTP 451, which rules out Google Cloud's always-free tier entirely |
 | The dashboard binds to localhost and is tunnelled, not published | It has no login, and the same interface that plots equity also places orders |
+| Collect market context before there is a model for it | Binance keeps 30 days of positioning data; the history a walk-forward needs cannot be bought later, only accumulated |
+| Store when we saw an observation, not only when it happened | Publishers backdate and re-date; a model trained on `published_at` reads news that was not yet readable, and no backtest metric shows it |
+| Keep Fear and Greed even though it measures nothing | Correlation +0.015 with next-day returns makes it a control: a model that finds signal there has found overfitting |
+| Over-fetch on every poll | A unique index makes the overlap free, and it means a week of downtime heals itself instead of leaving a permanent hole |
+| Collection runs with the server, not with the bot | Stopping trading to change a strategy must not put a gap in a dataset whose only value is being unbroken |
+| Any predictor targets daily bars | At 1h the round trip exceeds BTC's average move, so break-even needs accuracy above 100% |
