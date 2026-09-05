@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -602,5 +602,19 @@ app.mount("/assets", StaticFiles(directory=WEB_DIR), name="assets")
 
 
 @app.get("/")
-def index() -> FileResponse:
-    return FileResponse(WEB_DIR / "index.html")
+def index() -> HTMLResponse:
+    """The page, with a build stamp on each asset URL.
+
+    A dashboard is deployed by restarting a process, and the browser has no way
+    to know that the JavaScript behind an unchanged URL is now different. It
+    revalidates when it feels like it, so a panel added today can be invisible
+    tomorrow for reasons that look like a bug in the panel. Stamping the URL
+    with the file's own modification time makes a changed file a different URL,
+    which is the only version of this that cannot go stale.
+    """
+    html = (WEB_DIR / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        path = WEB_DIR / name
+        stamp = int(path.stat().st_mtime) if path.exists() else 0
+        html = html.replace(f"/assets/{name}", f"/assets/{name}?v={stamp}")
+    return HTMLResponse(html)
