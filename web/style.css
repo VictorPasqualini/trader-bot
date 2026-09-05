@@ -732,3 +732,6 @@ h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; colo
    counting down from the top of the ranking. */
 #lab-rank-table tr.row-on { background: rgba(25, 214, 155, 0.06); }
 #lab-rank-table tr.row-on td:first-child { box-shadow: inset 2px 0 0 var(--pos); }
+
+/* The control arm, marked because every other row is read against it. */
+.row-strong td { font-weight: 600; }

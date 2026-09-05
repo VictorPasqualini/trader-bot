@@ -42,6 +42,10 @@ per-strategy breakdown, updated live.
    experiment that ranks the universe daily instead of following rules. It has
    its own tables, its own paper capital and its own controls, and it cannot
    touch the validated book's ledger.
+9. **Runs the exit argument forward** in a third book: the same trades as the
+   live one, entered identically, exited four different ways. One arm waits for
+   the rule, the others sell at a fixed profit. It settles by measurement a
+   question that is otherwise settled by opinion.
 
 ![stack](https://img.shields.io/badge/python-3.11%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -785,6 +789,65 @@ cash each is sitting on.
 `POST /api/lab/train` retrains — six purged walk-forward folds with a three-day
 embargo, about a minute — and the *Laboratório ML* tab shows every fold, the
 controls and today's full ranking with the basket marked.
+
+## The exit study
+
+The live book holds until its strategy says to leave, and the standing objection
+is that this hands back gains that were already on the screen: a position up 3%
+becomes a position down 1% while the rule waits for its own condition. The
+obvious answer is to sell at a fixed profit instead.
+
+`bot/mirror.py` runs that argument forward instead of arguing it. Four arms
+shadow the live book's positions — same coin, same entry price, same entry
+moment, same size — and differ only in how they get out:
+
+| Arm | Exit |
+| --- | --- |
+| `rule` | Exactly when the live book exits. The control. |
+| `t2` | Sells the moment the position shows +2%, else waits for the rule. |
+| `t5` | Same, at +5%. |
+| `t10` | Same, at +10%. |
+
+The targets are written down before any of them has traded, and there are three
+rather than thirty. Picking the best of a wide grid afterwards would be the same
+selection error the lab's parameter sweep is careful not to claim as evidence.
+
+Because only the exit varies, a difference between arms is the exit and can be
+nothing else. The panel leans on that: alongside the per-arm totals it reports a
+**paired** comparison, matching each arm's trades to the control's by the live
+position they both shadow. Pairing removes the variance from *which* coins
+happened to be traded, which on a small sample is most of the variance there is.
+
+Some details that decide whether the numbers mean anything:
+
+- **Targets fill on the candle's high, not its close.** A resting limit order
+  fills when the price trades through it. Reading closes would miss every target
+  that was hit and given back inside one bar — precisely the case in dispute.
+- **The entry bar is excluded.** Its high may have printed before the entry, and
+  crediting a fill to a price that traded before the position existed would
+  invent profit. The bar still forming is excluded too, but the current price
+  stands in for it: if the market is trading above the target now, the order is
+  filled now.
+- **Every arm pays the same exit cost**, the 0.30% round trip the research
+  assumed. A target is a limit order and arguably suffers less slippage than the
+  rule's market exit; charging them differently would be a thumb on the scale.
+- **Inherited trades are tagged and reported separately.** The study adopts the
+  positions that were already open when it started, so it begins today rather
+  than in three weeks, but a trade it did not choose is not evidence about it.
+- **The panel says the sample is too small, in words**, until roughly thirty
+  closed trades per arm. A ranking shown without that line invites reading a
+  winner out of noise.
+
+Isolation works the same way the lab's does: it reads `positions` and writes
+only `mirror_positions` and `mirror_equity`. There is no code path from it into
+`positions`, `orders`, `equity_snapshots` or any `lab_` table, so it cannot
+disturb the two tests already running. Its notional capital — $100 a position,
+$1,100 an arm, $4,400 in total — comes from idle balance and from neither book's
+`start_capital`, because changing that figure moves the whole equity series of
+whichever book it was taken from.
+
+`POST /api/mirror/start` runs it on a five-minute poll; the *Estudo de saída* tab
+shows the arms side by side.
 
 ## Interpreting results honestly
 

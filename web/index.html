@@ -78,11 +78,12 @@
         <div class="seg seg-book" id="book-toggle">
           <button class="seg-btn is-on" data-book="live">Livro validado</button>
           <button class="seg-btn" data-book="ml">Laboratório ML</button>
+          <button class="seg-btn" data-book="exit">Estudo de saída</button>
         </div>
         <p class="hint" id="book-hint">—</p>
       </div>
 
-      <div class="kpi-grid">
+      <div class="kpi-grid" data-book-only="live ml">
         <div class="kpi kpi-hero">
           <span class="kpi-label">Patrimônio</span>
           <strong class="kpi-value" id="kpi-equity">—</strong>
@@ -115,7 +116,7 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel" data-book-only="live ml">
         <div class="panel-head">
           <h2>Lucro e perda</h2>
           <span class="muted" id="pnl-mode">—</span>
@@ -123,7 +124,7 @@
         <div class="waterfall" id="pnl-waterfall"></div>
       </div>
 
-      <div class="panel">
+      <div class="panel" data-book-only="live ml">
         <div class="panel-head">
           <h2>Curva de patrimônio</h2>
           <span class="muted" id="equity-range">—</span>
@@ -137,7 +138,7 @@
         </p>
       </div>
 
-      <div class="split">
+      <div class="split" data-book-only="live ml">
         <div class="panel">
           <div class="panel-head">
             <h2>Posições abertas</h2>
@@ -246,6 +247,79 @@
           </table>
         </div>
         <p class="empty" id="lab-rank-empty" hidden>Sem modelo ativo.</p>
+      </div>
+
+      <!-- ------------------------------------------------------ exit study -->
+
+      <div class="panel" data-book-only="exit">
+        <div class="panel-head">
+          <h2>Sair pela regra ou sair no lucro</h2>
+          <div class="panel-actions">
+            <button class="btn btn-small btn-ghost" id="btn-exit-tick">Rodar ciclo</button>
+            <button class="btn btn-small btn-primary" id="btn-exit-toggle">Ligar</button>
+          </div>
+        </div>
+        <p class="hint">Cada linha entra <em>na mesma operação</em> do livro validado:
+          mesma moeda, mesmo preço de entrada, mesmo momento, mesmo tamanho. A única
+          coisa que muda é a saída. <strong>Regra decide</strong> sai quando o livro
+          sai; as outras vendem assim que a posição mostra o lucro do alvo, e se o
+          alvo não vier esperam a regra. Como só a saída difere, qualquer diferença
+          entre as linhas é a saída e não pode ser outra coisa.</p>
+        <p class="hint" id="exit-note">—</p>
+        <div class="table-wrap">
+          <table id="exit-arms-table">
+            <thead>
+              <tr><th>Saída</th><th class="num">Resultado</th><th class="num">Retorno</th>
+                  <th class="num">vs. regra</th><th class="num">Operações</th>
+                  <th class="num">Acerto</th><th class="num">Média</th>
+                  <th class="num">No alvo</th><th class="num">Abertas</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" data-book-only="exit">
+        <div class="panel-head">
+          <h2>Operação a operação</h2>
+          <span class="muted" id="exit-paired-note">—</span>
+        </div>
+        <p class="hint">A comparação justa: só as operações que as duas saídas
+          fecharam, emparelhadas pela operação original. Isso tira do resultado a
+          sorte de <em>quais</em> moedas foram negociadas, que numa amostra pequena
+          é quase toda a variação que existe. Valor positivo em
+          <strong>regra − alvo</strong> significa que esperar a regra rendeu mais.</p>
+        <div class="table-wrap">
+          <table id="exit-paired-table">
+            <thead>
+              <tr><th>Alvo</th><th class="num">Pares</th><th class="num">Regra − alvo</th>
+                  <th class="num">Regra ganhou</th><th class="num">Alvo ganhou</th>
+                  <th class="num">Empate</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="exit-paired-empty" hidden>
+          Nenhuma operação fechada nos dois lados ainda.
+        </p>
+      </div>
+
+      <div class="panel" data-book-only="exit">
+        <div class="panel-head">
+          <h2>Posições e operações do estudo</h2>
+          <span class="muted" id="exit-ledger-note">—</span>
+        </div>
+        <div class="table-wrap">
+          <table id="exit-ledger-table">
+            <thead>
+              <tr><th>Saída</th><th>Par</th><th>Estado</th><th class="num">Entrada</th>
+                  <th class="num">Alvo</th><th class="num">Saída</th>
+                  <th class="num">Resultado</th><th>Motivo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="exit-ledger-empty" hidden>Nada espelhado ainda.</p>
       </div>
 
       <div class="panel">

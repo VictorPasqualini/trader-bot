@@ -14,6 +14,7 @@ from . import backtest as bt
 from . import coverage
 from . import feeds
 from . import lab
+from . import mirror
 from . import parity
 from . import report, research, sentiment, signals, storage
 from . import portfolio, screening, tracking, walkforward
@@ -43,9 +44,14 @@ async def lifespan(_app: FastAPI):
     lab_config = lab.get_config()
     if lab_config.get("enabled") and lab.active_model() is not None:
         lab.trader.start()
+    # The exit study shadows the live book, so it resumes on the same terms:
+    # only if it was running when the process died.
+    if mirror.get_config().get("enabled"):
+        mirror.trader.start()
     yield
     bot.stop()
     lab.trader.stop()
+    mirror.trader.stop()
     feeds.collector.stop()
 
 
@@ -507,6 +513,59 @@ def lab_reset() -> dict[str, Any]:
     """Wipe the experiment's ledger. Trained models are kept deliberately."""
     lab.trader.stop()
     return lab.reset()
+
+
+# -------------------------------------------------------------------- mirror
+#
+# The exit study. Reads the live ledger, writes only mirror tables. There is no
+# route here that can change a live position, and no code path either.
+
+
+@app.get("/api/mirror/overview")
+def mirror_overview() -> dict[str, Any]:
+    return mirror.overview()
+
+
+@app.get("/api/mirror/equity")
+def mirror_equity(arm: str = mirror.CONTROL, limit: int = 500) -> list[dict[str, Any]]:
+    return mirror.equity_curve(arm, limit)
+
+
+@app.get("/api/mirror/trades")
+def mirror_trades(arm: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    return mirror.closed_positions(arm, limit)
+
+
+@app.get("/api/mirror/positions")
+def mirror_positions(arm: str | None = None) -> list[dict[str, Any]]:
+    return mirror.open_positions(arm)
+
+
+@app.post("/api/mirror/config")
+def mirror_config(patch: dict[str, Any]) -> dict[str, Any]:
+    return mirror.save_config(patch)
+
+
+@app.post("/api/mirror/start")
+def mirror_start() -> dict[str, Any]:
+    return mirror.trader.start()
+
+
+@app.post("/api/mirror/stop")
+def mirror_stop() -> dict[str, Any]:
+    return mirror.trader.stop()
+
+
+@app.post("/api/mirror/tick")
+def mirror_tick() -> dict[str, Any]:
+    return mirror.trader.safe_tick()
+
+
+@app.post("/api/mirror/reset")
+def mirror_reset() -> dict[str, Any]:
+    """Wipe the study and let it re-adopt from today."""
+    mirror.trader.stop()
+    return mirror.reset()
 
 
 # ----------------------------------------------------------------- sentiment

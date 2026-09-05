@@ -247,6 +247,64 @@ CREATE TABLE IF NOT EXISTS lab_models (
 );
 CREATE INDEX IF NOT EXISTS idx_lab_models ON lab_models(trained_at DESC);
 
+-- ------------------------------------------------------------- the exit study
+--
+-- A third book, and the narrowest one: it takes the live book's entries, bar
+-- for bar, and changes only how they end. One arm exits exactly when the
+-- strategy says to; the others sell the moment the position shows a fixed
+-- profit. Everything else - which coin, when it was bought, at what price, at
+-- what size - is held identical, so the difference between the arms is the
+-- exit and cannot be anything else.
+--
+-- It reads `positions` and never writes to it. Same rule as the lab: isolation
+-- by schema, not by a flag someone can forget to filter on. A live position is
+-- mirrored at most once per arm, and the unique index below is what enforces
+-- it - a retry, a double tick or a restart mid-write cannot open the same
+-- trade twice, because the database refuses rather than the code remembering.
+CREATE TABLE IF NOT EXISTS mirror_positions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    arm          TEXT NOT NULL,
+    -- The live position this one shadows. The whole comparison rests on this
+    -- being the same trade, so it is stored rather than inferred from symbol
+    -- and time, which would pair the wrong two after a re-entry.
+    source_id    INTEGER NOT NULL,
+    symbol       TEXT NOT NULL,
+    interval     TEXT NOT NULL,
+    strategy     TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'open',
+    qty          REAL NOT NULL,
+    entry_price  REAL NOT NULL,
+    entry_time   TEXT NOT NULL,
+    entry_quote  REAL NOT NULL,
+    -- Null on the control arm, which has no target and waits for the rule.
+    target_pct   REAL,
+    target_price REAL,
+    exit_price   REAL,
+    exit_time    TEXT,
+    exit_quote   REAL,
+    pnl          REAL,
+    return_pct   REAL,
+    reason       TEXT,
+    -- Set when the arm inherited a position that was already open when the
+    -- study started. Those trades are real but they were not chosen by this
+    -- book, and a result that depends on them is a result about one lucky
+    -- inheritance.
+    adopted      INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_mirror_pair
+    ON mirror_positions(arm, source_id);
+CREATE INDEX IF NOT EXISTS idx_mirror_open
+    ON mirror_positions(status, arm);
+
+CREATE TABLE IF NOT EXISTS mirror_equity (
+    arm             TEXT NOT NULL,
+    ts              TEXT NOT NULL,
+    total_value     REAL NOT NULL,
+    positions_value REAL NOT NULL,
+    open_positions  INTEGER NOT NULL,
+    PRIMARY KEY (arm, ts)
+);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

@@ -1511,3 +1511,11 @@ market-neutral comparison.
 | Store the sentiment model name on every row | The day the model is upgraded is the day older scores stop being comparable, and that has to be visible rather than inferred |
 | A feature under 30% coverage is excluded automatically | Otherwise it is a date in disguise and the model learns "this is recent" instead of "this is news" |
 | Report capital at work beside capital | A basket of three at 100 USDT deploys 300 whatever the capital line says; comparing the two books on the capital line compares how much idle cash each is sitting on |
+| The exit argument is settled by a third book, not by a backtest rerun | The dispute is about live trades handing back live gains, and a paired forward test on those exact trades answers it with the one thing a rerun cannot supply: the trades in question |
+| Pre-register three targets, not a grid | Best-of-thirty is the maximum of thirty correlated draws; three spread wide show whether the effect has a shape or is a point that got lucky |
+| Fill targets on the candle high, never the close | A limit order fills when price trades through it, and reading closes would miss exactly the intrabar spike-and-give-back the study exists to measure |
+| Exclude the entry bar from target fills | Its high may have printed before the entry, and a fill credited to a price that traded before the position existed is invented profit |
+| Charge every arm the same exit cost | A limit exit plausibly slips less than a market exit, so pricing them differently would hand the targets an advantage that is an accounting choice rather than a result |
+| Tag adopted positions and report them apart | Starting the study by inheriting an open winner would otherwise show that inheritance as the arm's own result |
+| Fund the third book from idle balance, never from an existing book's capital | Equity is stored as capital plus result, so taking capital out of a running book shifts its whole curve and breaks the forward test it is in the middle of |
+| Say "sample too small" in the panel, not in the docs | The number will be read as a ranking the moment it has two rows; the only reliable place to say it is not one yet is next to it |

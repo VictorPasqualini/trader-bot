@@ -17,6 +17,7 @@ const state = {
   breakdownGroup: 'by_strategy',
   book: 'live',
   lab: null,
+  exit: null,
 };
 
 /* The two books, side by side and measured identically. The live one is a
@@ -39,6 +40,17 @@ const BOOKS = {
         + '$100 por posição sobre $5.000.',
     overview: '/lab/overview',
     equity: '/lab/equity',
+  },
+  /* The third book is not a third strategy. It is the same strategy exiting four
+     different ways on the same trades, which is why it has no equity tile and no
+     single overview: a book with four arms has four of everything, and folding
+     them into one number would hide the only thing being measured. */
+  exit: {
+    label: 'Estudo de saída',
+    hint: 'Espelha as operações do livro validado e muda só a saída: uma linha '
+        + 'espera a regra, as outras vendem em +2%, +5% e +10%. $100 por posição, '
+        + '$1.100 por linha, $4.400 no total — sobre o caixa parado, sem tirar '
+        + 'nada dos dois livros que já estão rodando.',
   },
 };
 
@@ -247,11 +259,16 @@ async function loadStatus() {
 async function loadDashboard() {
   const book = BOOKS[state.book];
   $$('[data-book-only]').forEach((panel) => {
-    panel.hidden = panel.dataset.bookOnly !== state.book;
+    panel.hidden = !panel.dataset.bookOnly.split(' ').includes(state.book);
   });
   $('#book-hint').textContent = book.hint;
   $$('#book-toggle .seg-btn').forEach((button) =>
     button.classList.toggle('is-on', button.dataset.book === state.book));
+
+  if (state.book === 'exit') {
+    await loadExitBook();
+    return;
+  }
 
   const [overview, equity, events] = await Promise.all([
     api(book.overview), api(book.equity), api('/events?limit=30'),
@@ -286,6 +303,86 @@ async function loadDashboard() {
   } else {
     await loadLabBook(overview);
   }
+}
+
+/* ------------------------------------------------------------- exit study */
+
+async function loadExitBook() {
+  const [overview, open, closed] = await Promise.all([
+    api('/mirror/overview'),
+    api('/mirror/positions'),
+    api('/mirror/trades?limit=200'),
+  ]);
+  state.exit = overview;
+
+  $('#btn-exit-toggle').textContent = overview.running ? 'Parar' : 'Ligar';
+  $('#btn-exit-toggle').classList.toggle('btn-danger', !!overview.running);
+  $('#btn-exit-toggle').classList.toggle('btn-primary', !overview.running);
+
+  /* Said in words, at the top, before any number. Four arms and a handful of
+     trades cannot separate exits that differ by a couple of points a trade, and
+     a panel that shows a ranking without saying so invites reading a winner out
+     of noise. */
+  setText('#exit-note',
+    `${overview.note} ${overview.closed_trades} de ~${overview.trades_needed} `
+    + `operações fechadas. Começou em ${dt(overview.started_at)}`
+    + `${overview.last_tick ? ` · último ciclo ${dt(overview.last_tick)}` : ''}.`,
+    overview.conclusive ? '' : 'muted');
+
+  renderExitArms(overview);
+  renderExitPaired(overview);
+  renderExitLedger(open, closed);
+}
+
+function renderExitArms(overview) {
+  $('#exit-arms-table tbody').innerHTML = overview.arms.map((arm) => {
+    const inherited = arm.adopted_trades
+      ? ` <span class="muted">(${arm.adopted_trades} herdada${arm.adopted_trades > 1 ? 's' : ''})</span>`
+      : '';
+    return `<tr${arm.arm === 'rule' ? ' class="row-strong"' : ''}>
+      <td>${arm.label}</td>
+      <td class="num ${cls(arm.total_pnl)}">${money(arm.total_pnl)}</td>
+      <td class="num ${cls(arm.return_pct)}">${pct(arm.return_pct)}</td>
+      <td class="num ${cls(arm.vs_rule_pct)}">${arm.arm === 'rule' ? '—' : pct(arm.vs_rule_pct)}</td>
+      <td class="num">${arm.closed_trades}${inherited}</td>
+      <td class="num">${arm.closed_trades ? `${nf(arm.win_rate_pct, 0)}%` : '—'}</td>
+      <td class="num ${cls(arm.avg_trade_pct)}">${arm.closed_trades ? pct(arm.avg_trade_pct) : '—'}</td>
+      <td class="num">${arm.arm === 'rule' ? '—' : arm.hit_target}</td>
+      <td class="num">${arm.open_positions}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderExitPaired(overview) {
+  const rows = Object.entries(overview.paired).filter(([, data]) => data.trades > 0);
+  $('#exit-paired-empty').hidden = rows.length > 0;
+  $('#exit-paired-table tbody').innerHTML = rows.map(([arm, data]) => `<tr>
+      <td>+${arm.slice(1)}%</td>
+      <td class="num">${data.trades}</td>
+      <td class="num ${cls(data.rule_minus_target_pp)}">${signed(data.rule_minus_target_pp, 2)} pp</td>
+      <td class="num">${data.rule_ahead}</td>
+      <td class="num">${data.target_ahead}</td>
+      <td class="num">${data.identical}</td>
+    </tr>`).join('');
+  setText('#exit-paired-note',
+    rows.length ? `${rows[0][1].trades} pares por alvo, no máximo` : 'sem pares ainda');
+}
+
+function renderExitLedger(open, closed) {
+  const label = (row) => (row.target_pct == null ? 'regra decide' : `+${nf(row.target_pct, 0)}%`);
+  const rows = [...open, ...closed];
+  $('#exit-ledger-empty').hidden = rows.length > 0;
+  setText('#exit-ledger-note', `${open.length} abertas · ${closed.length} fechadas`);
+  $('#exit-ledger-table tbody').innerHTML = rows.map((row) => `<tr>
+      <td>${label(row)}</td>
+      <td class="mono">${row.symbol}</td>
+      <td>${row.status === 'open' ? 'aberta' : 'fechada'}${row.adopted ? ' <span class="muted">herdada</span>' : ''}</td>
+      <td class="num mono">${num(row.entry_price)}</td>
+      <td class="num mono">${row.target_price == null ? '—' : num(row.target_price)}</td>
+      <td class="num mono">${row.exit_price == null ? '—' : num(row.exit_price)}</td>
+      <td class="num ${cls(row.pnl)}">${row.pnl == null ? '—' : `${money(row.pnl)} (${pct(row.return_pct)})`}</td>
+      <td class="muted">${row.reason || '—'}</td>
+    </tr>`).join('');
 }
 
 /* The sixth tile carries a different fact in each book. The live one has enough
@@ -1664,6 +1761,23 @@ $$('#book-toggle .seg-btn').forEach((button) => button.addEventListener('click',
   state.book = button.dataset.book;
   loadDashboard().catch((error) => toast(error.message, 'error'));
 }));
+
+$('#btn-exit-toggle').addEventListener('click', async () => {
+  const running = state.exit?.running;
+  try {
+    const result = await api(running ? '/mirror/stop' : '/mirror/start', { method: 'POST' });
+    toast(result.running ? 'Estudo de saída ligado' : 'Estudo de saída parado', 'ok');
+    await loadDashboard();
+  } catch (error) { toast(error.message, 'error'); }
+});
+
+$('#btn-exit-tick').addEventListener('click', async () => {
+  try {
+    const result = await api('/mirror/tick', { method: 'POST' });
+    toast(`${result.actions.length} movimento(s)`, 'ok');
+    await loadDashboard();
+  } catch (error) { toast(error.message, 'error'); }
+});
 
 $('#btn-lab-toggle').addEventListener('click', async () => {
   const running = state.lab?.status?.running;
