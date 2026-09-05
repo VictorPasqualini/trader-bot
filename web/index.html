@@ -266,6 +266,7 @@
           entre as linhas é a saída e não pode ser outra coisa.</p>
         <p class="hint" id="exit-scope">—</p>
         <p class="hint" id="exit-note">—</p>
+        <div class="kpi-grid kpi-grid-tight" id="exit-kpis"></div>
         <div class="table-wrap">
           <table id="exit-arms-table">
             <thead>
@@ -277,6 +278,25 @@
             <tbody></tbody>
           </table>
         </div>
+      </div>
+
+      <div class="panel" data-book-only="live">
+        <div class="panel-head">
+          <h2>Patrimônio de cada saída</h2>
+          <span class="muted" id="exit-equity-range">—</span>
+        </div>
+        <p class="hint">As quatro linhas partem do mesmo capital e das mesmas
+          entradas, então onde elas se separam é uma saída que diferiu — e nada
+          mais. A tracejada é o capital de partida.</p>
+        <div class="chart-wrap">
+          <canvas id="exit-equity-chart" height="240"></canvas>
+          <div class="chart-tip" id="exit-equity-tip" hidden></div>
+        </div>
+        <div class="legend" id="exit-legend"></div>
+        <p class="empty" id="exit-equity-empty" hidden>
+          Sem histórico ainda. O estudo grava um ponto por ciclo, a cada cinco
+          minutos, depois de ligado.
+        </p>
       </div>
 
       <div class="panel" data-book-only="live">

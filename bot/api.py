@@ -532,8 +532,11 @@ def mirror_overview() -> dict[str, Any]:
 
 
 @app.get("/api/mirror/equity")
-def mirror_equity(arm: str = mirror.CONTROL, limit: int = 500) -> list[dict[str, Any]]:
-    return mirror.equity_curve(arm, limit)
+def mirror_equity(arm: str | None = None, limit: int = 500) -> Any:
+    """One arm's curve, or every arm keyed by name when no arm is named."""
+    if arm:
+        return mirror.equity_curve(arm, limit)
+    return mirror.equity_curves(limit)
 
 
 @app.get("/api/mirror/trades")

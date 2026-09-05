@@ -386,6 +386,17 @@ def equity_curve(arm: str, limit: int = 500) -> list[dict[str, Any]]:
     return list(reversed(rows))
 
 
+def equity_curves(limit: int = 500) -> dict[str, list[dict[str, Any]]]:
+    """Every arm's curve, on the same instants.
+
+    Returned together rather than one request per arm because the point of the
+    chart is that they share a time axis: four lines that diverge only where an
+    exit differed. Fetched separately they could arrive from different ticks and
+    the divergence would be partly an artefact of when each one was read.
+    """
+    return {arm: equity_curve(arm, limit) for arm in arms()}
+
+
 # ----------------------------------------------------------------- the report
 
 def _stats(arm: str, capital: float, marks: dict[str, float]) -> dict[str, Any]:

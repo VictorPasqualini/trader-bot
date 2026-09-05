@@ -739,3 +739,13 @@ h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; colo
 /* The exit study sits inside the validated book's tab, so it needs a seam: it
    is a different question about the same trades, not another metric of them. */
 .panel-study { border-top: 2px solid var(--accent, #4c8dff); }
+
+/* Four arms on one strip, tighter than the book's own tiles: they are a
+   comparison, not a headline, and at hero size they would outrank the book they
+   are asking about. */
+.kpi-grid-tight {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  margin-top: 14px;
+}
+.kpi-arm { border-left: 3px solid var(--arm, var(--border-soft)); }
+.kpi-arm .kpi-value { font-size: 20px; }

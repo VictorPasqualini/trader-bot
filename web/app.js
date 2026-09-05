@@ -301,12 +301,19 @@ async function loadDashboard() {
 
 /* ------------------------------------------------------------- exit study */
 
+/* One colour per arm, fixed here so the tile, the chart line and the legend all
+   agree. The control is white on purpose: every other line is read against it. */
+const EXIT_COLORS = {
+  rule: '#e8edf7', t2: '#19d69b', t5: '#f2c14e', t10: '#5b7cfa',
+};
+
 async function loadExitBook(liveOverview) {
-  const [overview, open, closed, events] = await Promise.all([
+  const [overview, open, closed, events, curves] = await Promise.all([
     api('/mirror/overview'),
     api('/mirror/positions'),
     api('/mirror/trades?limit=200'),
     api('/events?limit=30&source=mirror'),
+    api('/mirror/equity?limit=500'),
   ]);
   state.exit = overview;
 
@@ -324,10 +331,65 @@ async function loadExitBook(liveOverview) {
     + `${overview.last_tick ? ` · último ciclo ${dt(overview.last_tick)}` : ''}.`,
     overview.conclusive ? '' : 'muted');
 
+  renderExitKpis(overview);
   renderExitArms(overview, liveOverview);
+  renderExitEquity(curves, overview);
   renderExitPaired(overview);
   renderExitLedger(open, closed);
   renderEvents(events, '#exit-events-list');
+}
+
+/* The study has its own money and shows it, one tile per arm. Folding four arms
+   into a single headline figure would hide the only thing being measured, and
+   leaving them out entirely made the tab look like it had one book in it. */
+function renderExitKpis(overview) {
+  $('#exit-kpis').innerHTML = overview.arms.map((arm) => `
+    <div class="kpi kpi-arm" style="--arm:${EXIT_COLORS[arm.arm] || '#8b94b2'}">
+      <span class="kpi-label">${arm.label}</span>
+      <strong class="kpi-value">${money(arm.total_value)}</strong>
+      <span class="kpi-delta ${cls(arm.total_pnl)}">${signed(arm.total_pnl)} · ${pct(arm.return_pct)}</span>
+      <span class="kpi-sub">${arm.closed_trades} fechada${arm.closed_trades === 1 ? '' : 's'}
+        · ${arm.open_positions} aberta${arm.open_positions === 1 ? '' : 's'}
+        · ${money(arm.invested)} aplicado${arm.arm === 'rule' ? '' : ` · ${arm.hit_target} no alvo`}</span>
+    </div>`).join('');
+}
+
+function renderExitEquity(curves, overview) {
+  const canvas = $('#exit-equity-chart');
+  const empty = $('#exit-equity-empty');
+  const names = overview.arms.map((arm) => arm.arm);
+  const longest = Math.max(0, ...names.map((name) => (curves[name] || []).length));
+  if (longest < 2) {
+    canvas.style.display = 'none';
+    empty.hidden = false;
+    $('#exit-legend').innerHTML = '';
+    setText('#exit-equity-range', '—');
+    return;
+  }
+  canvas.style.display = 'block';
+  empty.hidden = true;
+
+  const series = names.map((name) => ({
+    points: (curves[name] || []).map((row) => ({ t: row.ts, y: row.total_value })),
+    color: EXIT_COLORS[name] || '#8b94b2',
+    width: name === 'rule' ? 2.5 : 1.8,
+  }));
+  const spine = curves[names[0]] || [];
+  series.push({
+    points: spine.map((row) => ({ t: row.ts, y: overview.capital })),
+    color: 'rgba(255,255,255,0.18)', width: 1, dash: [4, 4],
+  });
+  /* No fill: four shaded areas stacked on one canvas hide each other, and the
+     answer here is where the lines separate, not the area under any of them. */
+  drawChart(canvas, series, { fill: false, tipTarget: $('#exit-equity-tip') });
+
+  $('#exit-legend').innerHTML = overview.arms.map((arm) => `
+    <span class="legend-item"><i class="legend-swatch"
+      style="border-top-color:${EXIT_COLORS[arm.arm] || '#8b94b2'}"></i>${arm.label}</span>`).join('')
+    + '<span class="legend-item"><i class="legend-swatch"'
+    + ' style="border-top-color:rgba(255,255,255,0.4);border-top-style:dashed"></i>capital de partida</span>';
+
+  setText('#exit-equity-range', `${dt(spine[0].ts)} — ${dt(spine[spine.length - 1].ts)}`);
 }
 
 function renderExitArms(overview, liveOverview) {

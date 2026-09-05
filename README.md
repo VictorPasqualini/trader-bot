@@ -866,7 +866,12 @@ longer span, so those two sets of numbers are the same money over different
 periods; the like-for-like read is inside the study's own table.
 
 `POST /api/mirror/start` runs it on a five-minute poll, and the study sits in the
-*Livro validado* tab, under the book it is asking about.
+*Livro validado* tab, under the book it is asking about — with its own equity
+tiles, one per arm, and its own chart. Four arms cannot be folded into a single
+headline figure without hiding the only thing being measured, so there are four
+tiles; and because all four start from the same capital and the same entries,
+the chart says the whole thing at a glance: where the lines separate is an exit
+that differed, and nothing else.
 
 ## Interpreting results honestly
 
