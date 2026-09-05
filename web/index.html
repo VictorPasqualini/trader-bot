@@ -78,7 +78,6 @@
         <div class="seg seg-book" id="book-toggle">
           <button class="seg-btn is-on" data-book="live">Livro validado</button>
           <button class="seg-btn" data-book="ml">Laboratório ML</button>
-          <button class="seg-btn" data-book="exit">Estudo de saída</button>
         </div>
         <p class="hint" id="book-hint">—</p>
       </div>
@@ -251,7 +250,7 @@
 
       <!-- ------------------------------------------------------ exit study -->
 
-      <div class="panel" data-book-only="exit">
+      <div class="panel panel-study" data-book-only="live">
         <div class="panel-head">
           <h2>Sair pela regra ou sair no lucro</h2>
           <div class="panel-actions">
@@ -265,6 +264,7 @@
           sai; as outras vendem assim que a posição mostra o lucro do alvo, e se o
           alvo não vier esperam a regra. Como só a saída difere, qualquer diferença
           entre as linhas é a saída e não pode ser outra coisa.</p>
+        <p class="hint" id="exit-scope">—</p>
         <p class="hint" id="exit-note">—</p>
         <div class="table-wrap">
           <table id="exit-arms-table">
@@ -279,7 +279,7 @@
         </div>
       </div>
 
-      <div class="panel" data-book-only="exit">
+      <div class="panel" data-book-only="live">
         <div class="panel-head">
           <h2>Operação a operação</h2>
           <span class="muted" id="exit-paired-note">—</span>
@@ -304,7 +304,7 @@
         </p>
       </div>
 
-      <div class="panel" data-book-only="exit">
+      <div class="panel" data-book-only="live">
         <div class="panel-head">
           <h2>Posições e operações do estudo</h2>
           <span class="muted" id="exit-ledger-note">—</span>
@@ -322,7 +322,15 @@
         <p class="empty" id="exit-ledger-empty" hidden>Nada espelhado ainda.</p>
       </div>
 
-      <div class="panel">
+      <div class="panel" data-book-only="live">
+        <div class="panel-head"><h2>Atividade do estudo</h2></div>
+        <p class="hint">Só o que as quatro saídas fizeram. As entradas e saídas do
+          livro validado ficam na lista abaixo — misturar as duas torna as duas
+          ilegíveis.</p>
+        <ul class="events" id="exit-events-list"></ul>
+      </div>
+
+      <div class="panel" data-book-only="live ml">
         <div class="panel-head"><h2>Atividade recente</h2></div>
         <ul class="events" id="events-list"></ul>
       </div>

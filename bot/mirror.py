@@ -44,6 +44,11 @@ from .exchange import BinanceError, exchange
 TARGETS: tuple[float, ...] = (2.0, 5.0, 10.0)
 CONTROL = "rule"
 
+# Every line this module writes to the event log carries this tag, so the
+# activity panel can show what the study did without three books talking over
+# each other.
+SOURCE = "mirror"
+
 # Same size on every arm, so the comparison is not quietly a comparison of
 # position sizes. Eleven is the live book's own limit on concurrent positions,
 # so an arm can always mirror everything the live book holds and never has to
@@ -53,10 +58,21 @@ QUOTE_PER_TRADE = 100.0
 MAX_POSITIONS = 11
 POLL_SECONDS = 300
 
+# The arms share one capital figure because they are alternative histories of
+# the same money, not four books running at once. Only one of them can be true.
+# Multiplying the base by the number of arms would invent capital that never
+# existed and shrink every reported return by a factor of four.
+#
+# It is a denominator and nothing else. The study places no orders - it shadows
+# trades the live book already made - so it consumes no exchange balance, and
+# this number is not taken from any book's start_capital either. Moving that
+# figure would shift the whole equity curve of whichever book it came from.
+CAPITAL = 2_500.0
+
 DEFAULTS: dict[str, Any] = {
     "enabled": False,
     "quote_per_trade": QUOTE_PER_TRADE,
-    "capital_per_arm": QUOTE_PER_TRADE * MAX_POSITIONS,
+    "capital": CAPITAL,
     "targets": list(TARGETS),
     "poll_seconds": POLL_SECONDS,
     # Adopting the positions that were already open when the study started
@@ -92,6 +108,11 @@ def target_of(arm: str) -> float | None:
     return None if arm == CONTROL else float(arm[1:])
 
 
+def _arm_label(arm: str) -> str:
+    target = target_of(arm)
+    return "regra decide" if target is None else f"alvo +{target:g}%"
+
+
 # ------------------------------------------------------------------ the ledger
 
 def open_positions(arm: str | None = None) -> list[dict[str, Any]]:
@@ -118,6 +139,28 @@ def _live_positions() -> list[dict[str, Any]]:
     return storage.query("SELECT * FROM positions ORDER BY id")
 
 
+def _buyable(symbol: str, quote: float, price: float) -> tuple[float, float]:
+    """The quantity an order would actually get, and what it would actually cost.
+
+    An exchange sells in lot steps, so $100 of a coin is almost never $100 of
+    the coin: the order is floored to the step and the real outlay is whatever
+    that quantity costs. Reporting the requested amount instead would show a
+    round $100 on every line and quietly misstate the money at work - and it is
+    the money at work that every return here is divided by.
+
+    If the exchange cannot be reached the request stands unrounded. A missing
+    filter is not a reason to stop mirroring, and the error it would otherwise
+    raise would take the whole tick down.
+    """
+    try:
+        qty = exchange.round_qty(symbol, quote / price)
+    except Exception:
+        qty = quote / price
+    if qty <= 0:
+        qty = quote / price
+    return qty, qty * price
+
+
 def _open(arm: str, live: dict[str, Any], quote: float,
           adopted: bool) -> dict[str, Any] | None:
     """Shadow one live entry.
@@ -132,20 +175,27 @@ def _open(arm: str, live: dict[str, Any], quote: float,
     price = float(live["entry_price"])
     if price <= 0:
         return None
+    qty, spent = _buyable(live["symbol"], quote, price)
     try:
         storage.execute(
             "INSERT INTO mirror_positions(arm, source_id, symbol, interval, strategy,"
             " status, qty, entry_price, entry_time, entry_quote, target_pct,"
             " target_price, adopted) VALUES(?,?,?,?,?,'open',?,?,?,?,?,?,?)",
             (arm, int(live["id"]), live["symbol"], live["interval"], live["strategy"],
-             quote / price, price, live["entry_time"], quote, target,
+             qty, price, live["entry_time"], spent, target,
              price * (1 + target / 100) if target else None, int(adopted)))
     except Exception:
         # The unique index refused a duplicate. That is the index doing its job
         # on a retry or a restart mid-tick, not an error worth surfacing.
         return None
+    storage.log_event(
+        "info",
+        f"{_arm_label(arm)}: espelhou {live['symbol']} a {price:.6g}"
+        f" ({spent:,.2f} USDT){' — posicao herdada' if adopted else ''}",
+        {"arm": arm, "symbol": live["symbol"], "source_id": int(live["id"]),
+         "spent": spent, "adopted": adopted}, source=SOURCE)
     return {"action": "open", "arm": arm, "symbol": live["symbol"],
-            "price": price, "adopted": adopted}
+            "price": price, "quote": spent, "adopted": adopted}
 
 
 def _close(position: dict[str, Any], price: float, reason: str,
@@ -161,11 +211,18 @@ def _close(position: dict[str, Any], price: float, reason: str,
     fill = price * (1 - settings.fee_rate - settings.slippage_rate)
     proceeds = position["qty"] * fill
     pnl = proceeds - position["entry_quote"]
+    change = (proceeds / position["entry_quote"] - 1) * 100
     storage.execute(
         "UPDATE mirror_positions SET status='closed', exit_price=?, exit_time=?,"
         " exit_quote=?, pnl=?, return_pct=?, reason=? WHERE id=?",
-        (fill, when or _now(), proceeds, pnl,
-         (proceeds / position["entry_quote"] - 1) * 100, reason, position["id"]))
+        (fill, when or _now(), proceeds, pnl, change, reason, position["id"]))
+    storage.log_event(
+        "info",
+        f"{_arm_label(position['arm'])}: saiu de {position['symbol']} a {fill:.6g}"
+        f" por {reason} — {pnl:+,.2f} USDT ({change:+.2f}%)",
+        {"arm": position["arm"], "symbol": position["symbol"],
+         "source_id": int(position["source_id"]), "pnl": pnl, "reason": reason},
+        source=SOURCE)
     return {"action": "close", "arm": position["arm"], "symbol": position["symbol"],
             "price": fill, "pnl": pnl, "reason": reason}
 
@@ -237,7 +294,8 @@ def tick(config: dict[str, Any] | None = None) -> dict[str, Any]:
     if not started:
         started = _now()
         storage.set_state("mirror_started_at", started)
-        storage.log_event("info", "Estudo de saida iniciado", {"arms": every_arm})
+        storage.log_event("info", "Estudo de saida iniciado",
+                          {"arms": every_arm}, source=SOURCE)
     adopt = bool(config.get("adopt_open"))
 
     for live in live_rows:
@@ -295,7 +353,7 @@ def _marks(symbols: list[str]) -> dict[str, float]:
 
 def snapshot_equity(config: dict[str, Any] | None = None) -> dict[str, Any]:
     config = config or get_config()
-    capital = float(config["capital_per_arm"])
+    capital = float(config["capital"])
     positions = open_positions()
     marks = _marks([p["symbol"] for p in positions])
     now = _now()
@@ -375,7 +433,7 @@ def _stats(arm: str, capital: float, marks: dict[str, float]) -> dict[str, Any]:
 def overview() -> dict[str, Any]:
     """Every arm side by side, plus what can and cannot yet be concluded."""
     config = get_config()
-    capital = float(config["capital_per_arm"])
+    capital = float(config["capital"])
     positions = open_positions()
     marks = _marks([p["symbol"] for p in positions])
     rows = [_stats(arm, capital, marks) for arm in arms(config)]
@@ -422,8 +480,11 @@ def overview() -> dict[str, Any]:
         "running": trader.running,
         "started_at": storage.get_state("mirror_started_at"),
         "last_tick": storage.get_state("mirror_last_tick"),
-        "capital_per_arm": capital,
-        "capital_total": capital * len(rows),
+        "capital": capital,
+        # Money actually deployed when every slot is full, reported beside the
+        # capital for the same reason the other two books report it: a return
+        # computed on capital is mostly a statement about idle cash.
+        "capital_at_work": float(config["quote_per_trade"]) * MAX_POSITIONS,
         "quote_per_trade": float(config["quote_per_trade"]),
         "targets": list(config["targets"]),
         "arms": rows,
@@ -466,13 +527,13 @@ class MirrorTrader:
             self._stop.clear()
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
-            storage.log_event("info", "Estudo de saida iniciado")
+            storage.log_event("info", "Estudo de saida iniciado", source=SOURCE)
             return {"running": True, "message": "started"}
 
     def stop(self) -> dict[str, Any]:
         save_config({"enabled": False})
         self._stop.set()
-        storage.log_event("info", "Estudo de saida parado")
+        storage.log_event("info", "Estudo de saida parado", source=SOURCE)
         return {"running": False, "message": "stopped"}
 
     def _loop(self) -> None:
@@ -484,7 +545,8 @@ class MirrorTrader:
             except Exception as exc:
                 self.last_error = str(exc)
                 storage.log_event("error", f"Tick do estudo de saida falhou: {exc}",
-                                  {"trace": traceback.format_exc()[-600:]})
+                                  {"trace": traceback.format_exc()[-600:]},
+                                  source=SOURCE)
             self.last_tick = _now()
             self.tick_count += 1
             self._stop.wait(max(60, int(config.get("poll_seconds", POLL_SECONDS))))
@@ -503,5 +565,5 @@ def reset() -> dict[str, Any]:
     storage.execute("DELETE FROM mirror_equity")
     storage.set_state("mirror_started_at", None)
     storage.set_state("mirror_last_tick", None)
-    storage.log_event("info", "Estudo de saida zerado")
+    storage.log_event("info", "Estudo de saida zerado", source=SOURCE)
     return {"reset": True}

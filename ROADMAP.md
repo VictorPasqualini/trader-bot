@@ -1519,3 +1519,7 @@ market-neutral comparison.
 | Tag adopted positions and report them apart | Starting the study by inheriting an open winner would otherwise show that inheritance as the arm's own result |
 | Fund the third book from idle balance, never from an existing book's capital | Equity is stored as capital plus result, so taking capital out of a running book shifts its whole curve and breaks the forward test it is in the middle of |
 | Say "sample too small" in the panel, not in the docs | The number will be read as a ranking the moment it has two rows; the only reliable place to say it is not one yet is next to it |
+| The four arms share one capital figure, not one each | They are alternative histories of the same money and only one can be true; multiplying the base by four invents capital that never existed and divides every return by four |
+| The exit study lives in the validated book's tab | It is a question about that book's trades, and a tab of its own asked the reader to hold the book's numbers in their head while looking at the answer |
+| Every event carries the book that wrote it | Three books in one feed makes the feed useless: what a reader wants from an activity list is what the book in front of them just did |
+| Record what an order would really cost, not what it asked for | An exchange sells in lot steps, so a round 100 USDT on every line is the one number guaranteed to be wrong - and it is the denominator of every return in the book |

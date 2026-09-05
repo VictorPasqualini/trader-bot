@@ -248,8 +248,13 @@ def breakdown() -> dict[str, Any]:
 
 
 @app.get("/api/events")
-def events(limit: int = 60) -> list[dict[str, Any]]:
-    return storage.recent_events(limit)
+def events(limit: int = 60, source: str | None = None) -> list[dict[str, Any]]:
+    """Recent activity, optionally for one book only.
+
+    Three books writing into one feed makes it unreadable: what a reader wants
+    from an activity list is what the book in front of them just did.
+    """
+    return storage.recent_events(limit, source)
 
 
 @app.get("/api/strategies")

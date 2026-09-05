@@ -735,3 +735,7 @@ h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; colo
 
 /* The control arm, marked because every other row is read against it. */
 .row-strong td { font-weight: 600; }
+
+/* The exit study sits inside the validated book's tab, so it needs a seam: it
+   is a different question about the same trades, not another metric of them. */
+.panel-study { border-top: 2px solid var(--accent, #4c8dff); }

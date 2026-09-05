@@ -528,7 +528,7 @@ The sidebar has five views, and they are ordered by how often you need them.
 
 | Menu | What it is for |
 | --- | --- |
-| **Painel** | The state of the money right now, for either of the two books. A switch at the top picks between *Livro validado* — the rule-based allocations that passed the walk-forward — and *Laboratório ML*, the ranking experiment. Both are drawn with the same tiles and the same arithmetic: equity curve, P&L split into realised and open, win rate, profit factor, drawdown. The page to open first and to leave open. |
+| **Painel** | The state of the money right now, for either of the two books. A switch at the top picks between *Livro validado* — the rule-based allocations that passed the walk-forward, with the exit study underneath them — and *Laboratório ML*, the ranking experiment. Both are drawn with the same tiles and the same arithmetic: equity curve, P&L split into realised and open, win rate, profit factor, drawdown. Each book's activity feed shows only its own lines. The page to open first and to leave open. |
 | **Pesquisa** | Where allocations come from. Runs the parameter search over history, ranks candidates on out-of-sample results only, and lets you promote the survivors into the live book. Nothing here trades; it produces candidates. |
 | **Operações** | The audit trail. Every buy and sell in the order they happened, and the same trades grouped by coin with the signal that opened and closed each one. Answers "what did it do, and why". |
 | **Validação** | Whether the book deserves real money. A checklist that can say no, plus the walk-forward table behind it — each allocation re-tested quarter by quarter on the parameters it is actually deployed with. |
@@ -786,6 +786,13 @@ computed on capital would understate the experiment about seventeen-fold and the
 comparison between the two books would really be a comparison of how much idle
 cash each is sitting on.
 
+Orders are floored to the symbol's lot step, here as in the live book. An
+exchange sells in steps, so 100 USDT of a coin is almost never 100 USDT of the
+coin, and the amount recorded is what the order would really have cost rather
+than what it asked for. Recording the request instead would print a round 100 on
+every line — the one figure guaranteed to be wrong, and the figure every return
+in the book is divided by.
+
 `POST /api/lab/train` retrains — six purged walk-forward folds with a three-day
 embargo, about a minute — and the *Laboratório ML* tab shows every fold, the
 controls and today's full ranking with the basket marked.
@@ -841,13 +848,25 @@ Some details that decide whether the numbers mean anything:
 Isolation works the same way the lab's does: it reads `positions` and writes
 only `mirror_positions` and `mirror_equity`. There is no code path from it into
 `positions`, `orders`, `equity_snapshots` or any `lab_` table, so it cannot
-disturb the two tests already running. Its notional capital — $100 a position,
-$1,100 an arm, $4,400 in total — comes from idle balance and from neither book's
-`start_capital`, because changing that figure moves the whole equity series of
-whichever book it was taken from.
+disturb the two tests already running.
 
-`POST /api/mirror/start` runs it on a five-minute poll; the *Estudo de saída* tab
-shows the arms side by side.
+Its capital is one figure, $2,500, shared by all four arms rather than
+multiplied by them: the arms are alternative histories of the same money and
+only one of them can be true. Multiplying the base by four would invent capital
+that never existed and divide every reported return by four. The figure is a
+denominator and nothing else — the study places no orders, since it shadows
+trades the live book already made, so it consumes no exchange balance and is
+taken from no book's `start_capital`. Moving that figure would shift the whole
+equity curve of whichever book it came from.
+
+Position size is $100, the same as the live book, which is what makes the
+control arm readable: `rule` is the validated book itself, restricted to the
+trades mirrored since the study began. The tiles at the top of the tab cover a
+longer span, so those two sets of numbers are the same money over different
+periods; the like-for-like read is inside the study's own table.
+
+`POST /api/mirror/start` runs it on a five-minute poll, and the study sits in the
+*Livro validado* tab, under the book it is asking about.
 
 ## Interpreting results honestly
 

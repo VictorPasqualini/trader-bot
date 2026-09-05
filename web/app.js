@@ -29,9 +29,11 @@ const BOOKS = {
   live: {
     label: 'Livro validado',
     hint: 'Estratégias que passaram na caminhada para a frente, operando adiante '
-        + 'sem reajuste. $250 por posição, teto de 11 posições sobre $5.000.',
+        + 'sem reajuste. $100 por posição, teto de 11 posições sobre $2.500. '
+        + 'Abaixo, o estudo de saída roda sobre estas mesmas operações.',
     overview: '/overview',
     equity: '/equity',
+    events: 'bot',
   },
   ml: {
     label: 'Laboratório ML',
@@ -40,17 +42,7 @@ const BOOKS = {
         + '$100 por posição sobre $5.000.',
     overview: '/lab/overview',
     equity: '/lab/equity',
-  },
-  /* The third book is not a third strategy. It is the same strategy exiting four
-     different ways on the same trades, which is why it has no equity tile and no
-     single overview: a book with four arms has four of everything, and folding
-     them into one number would hide the only thing being measured. */
-  exit: {
-    label: 'Estudo de saída',
-    hint: 'Espelha as operações do livro validado e muda só a saída: uma linha '
-        + 'espera a regra, as outras vendem em +2%, +5% e +10%. $100 por posição, '
-        + '$1.100 por linha, $4.400 no total — sobre o caixa parado, sem tirar '
-        + 'nada dos dois livros que já estão rodando.',
+    events: 'lab',
   },
 };
 
@@ -265,13 +257,11 @@ async function loadDashboard() {
   $$('#book-toggle .seg-btn').forEach((button) =>
     button.classList.toggle('is-on', button.dataset.book === state.book));
 
-  if (state.book === 'exit') {
-    await loadExitBook();
-    return;
-  }
-
+  /* Filtered by book. Three books writing into one feed makes the feed
+     useless: what a reader wants from it is what the book in front of them
+     just did, and interleaving three makes that impossible to see. */
   const [overview, equity, events] = await Promise.all([
-    api(book.overview), api(book.equity), api('/events?limit=30'),
+    api(book.overview), api(book.equity), api(`/events?limit=30&source=${book.events}`),
   ]);
   state.overview = overview;
   state.equity = equity;
@@ -300,6 +290,10 @@ async function loadDashboard() {
     state.breakdown = breakdown;
     renderBreakdown(breakdown[state.breakdownGroup || 'by_strategy']);
     await loadSignals();
+    /* The study lives in this tab because it is this book: the same trades,
+       exited four ways. Putting it in a tab of its own asked the reader to
+       hold the validated book's numbers in their head while looking at it. */
+    await loadExitBook(overview);
   } else {
     await loadLabBook(overview);
   }
@@ -307,11 +301,12 @@ async function loadDashboard() {
 
 /* ------------------------------------------------------------- exit study */
 
-async function loadExitBook() {
-  const [overview, open, closed] = await Promise.all([
+async function loadExitBook(liveOverview) {
+  const [overview, open, closed, events] = await Promise.all([
     api('/mirror/overview'),
     api('/mirror/positions'),
     api('/mirror/trades?limit=200'),
+    api('/events?limit=30&source=mirror'),
   ]);
   state.exit = overview;
 
@@ -329,12 +324,26 @@ async function loadExitBook() {
     + `${overview.last_tick ? ` · último ciclo ${dt(overview.last_tick)}` : ''}.`,
     overview.conclusive ? '' : 'muted');
 
-  renderExitArms(overview);
+  renderExitArms(overview, liveOverview);
   renderExitPaired(overview);
   renderExitLedger(open, closed);
+  renderEvents(events, '#exit-events-list');
 }
 
-function renderExitArms(overview) {
+function renderExitArms(overview, liveOverview) {
+  /* The control arm is the validated book, restricted to the trades mirrored
+     since the study started. Saying so is the whole comparison: the tiles at
+     the top of this tab cover a longer span, so the two sets of numbers are
+     the same money over different periods and only the table below is a
+     like-for-like read. */
+  setText('#exit-scope', liveOverview
+    ? `Livro validado no total: ${money(liveOverview.total_pnl)} em `
+      + `${liveOverview.closed_trades} operações fechadas, sobre `
+      + `${money(liveOverview.start_capital, 0)}. A linha "regra decide" abaixo é `
+      + 'este mesmo livro, limitado ao que o estudo espelhou, com o mesmo '
+      + `$${nf(overview.quote_per_trade, 0)} por posição sobre `
+      + `${money(overview.capital, 0)}.`
+    : '—');
   $('#exit-arms-table tbody').innerHTML = overview.arms.map((arm) => {
     const inherited = arm.adopted_trades
       ? ` <span class="muted">(${arm.adopted_trades} herdada${arm.adopted_trades > 1 ? 's' : ''})</span>`
@@ -740,8 +749,8 @@ function escape(value) {
     (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
 }
 
-function renderEvents(events) {
-  $('#events-list').innerHTML = events.length
+function renderEvents(events, target = '#events-list') {
+  $(target).innerHTML = events.length
     ? events.map((e) => {
       // A collapsed row covers a span, so show where it started as well as the
       // count - "120x" without "since 01:40" says nothing about the outage.

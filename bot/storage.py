@@ -335,6 +335,10 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("orders", "fee_asset", "TEXT"),
     ("events", "first_ts", "TEXT"),
     ("events", "repeats", "INTEGER NOT NULL DEFAULT 1"),
+    # Which book wrote the line. The feed is unreadable when three books share
+    # it: the one thing a reader wants from an activity list is what *this*
+    # book just did, and that is impossible to see interleaved with two others.
+    ("events", "source", "TEXT NOT NULL DEFAULT 'bot'"),
     # A score is only interpretable next to the model that produced it, so the
     # model name is stored per row rather than assumed. See bot/sentiment.py.
     ("feed_headlines", "sentiment", "REAL"),
@@ -466,7 +470,8 @@ def equity_series(limit: int | None = None) -> list[dict[str, Any]]:
     return rows[-limit:] if limit else rows
 
 
-def log_event(level: str, message: str, context: dict[str, Any] | None = None) -> None:
+def log_event(level: str, message: str, context: dict[str, Any] | None = None,
+              source: str = "bot") -> None:
     """Record one event, folding it into the previous row if it is the same one.
 
     Only the immediately preceding row is considered, so an event that recurs
@@ -477,7 +482,10 @@ def log_event(level: str, message: str, context: dict[str, Any] | None = None) -
     that matters.
     """
     stamp = now()
-    previous = query_one("SELECT * FROM events ORDER BY id DESC LIMIT 1")
+    # Folding is per source, so a busy book cannot break another book's run of
+    # repeats by writing one line in the middle of it.
+    previous = query_one(
+        "SELECT * FROM events WHERE source = ? ORDER BY id DESC LIMIT 1", (source,))
     if previous and previous["level"] == level and previous["message"] == message:
         execute(
             "UPDATE events SET ts = ?, repeats = repeats + 1,"
@@ -486,14 +494,17 @@ def log_event(level: str, message: str, context: dict[str, Any] | None = None) -
         )
         return
     execute(
-        "INSERT INTO events(ts, first_ts, level, message, repeats, context)"
-        " VALUES(?, ?, ?, ?, 1, ?)",
-        (stamp, stamp, level, message, json.dumps(context) if context else None),
+        "INSERT INTO events(ts, first_ts, level, message, repeats, context, source)"
+        " VALUES(?, ?, ?, ?, 1, ?, ?)",
+        (stamp, stamp, level, message,
+         json.dumps(context) if context else None, source),
     )
 
 
-def recent_events(limit: int = 60) -> list[dict[str, Any]]:
-    rows = query("SELECT * FROM events ORDER BY id DESC LIMIT ?", (limit,))
+def recent_events(limit: int = 60, source: str | None = None) -> list[dict[str, Any]]:
+    rows = query(
+        "SELECT * FROM events WHERE (? IS NULL OR source = ?) ORDER BY id DESC LIMIT ?",
+        (source, source, limit))
     for row in rows:
         row["context"] = json.loads(row["context"]) if row["context"] else None
     return rows

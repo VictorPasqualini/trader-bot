@@ -103,6 +103,11 @@ COST_PCT = (settings.fee_rate + settings.slippage_rate) * 2 * 100
 # +0.093 with a t of 11.6 over 1 319 days and positive in all six folds, and
 # that number does not depend on any of these three.
 TOP_K = 3
+
+# Every event this module writes carries this tag. Three books sharing one
+# activity feed makes the feed useless: what a reader wants from it is what
+# *this* book just did.
+SOURCE = "lab"
 # A held coin keeps its place while it stays inside the top STICKY * TOP_K.
 # Without it the basket churns on ranking noise: two coins swapping third and
 # fourth place is not a change of opinion, and acting on it costs 0.30%.
@@ -664,7 +669,7 @@ def train(symbols: list[str] | None = None, activate: bool = True) -> dict[str, 
         f"{cv['median_edge']:+.3f}% por dia sobre a carteira igual em "
         f"{cv['usable_folds']} janelas"
         f" (controle embaralhado: {cv['null'].get('median_edge')})",
-        {"model_id": row, "cv": cv})
+        {"model_id": row, "cv": cv}, source=SOURCE)
     return {"model_id": row, "rows": len(data), "cv": cv, "top_k": cv["top_k"],
             "features": features, "importance": importance,
             "train_probability_mean": round(float(probabilities.mean()), 4)}
@@ -696,7 +701,7 @@ def train_async(symbols: list[str] | None = None) -> dict[str, Any]:
         except Exception as exc:
             _training["error"] = f"{type(exc).__name__}: {exc}"
             storage.log_event("error", f"Treino do laboratório falhou: {exc}",
-                              {"trace": traceback.format_exc()[-600:]})
+                              {"trace": traceback.format_exc()[-600:]}, source=SOURCE)
         finally:
             _training.update(running=False, finished_at=_now())
 
@@ -801,15 +806,24 @@ def _buy(symbol: str, price: float, probability: float, model_id: int,
     # Same fee and slippage the backtester charges, so the experiment's numbers
     # stay comparable with the research that justified the live book.
     fill = price * (1 + settings.fee_rate + settings.slippage_rate)
-    qty = quote / fill
+    # An exchange sells in lot steps, so $100 of a coin is almost never $100 of
+    # the coin. Flooring to the step here means entry_quote is what the order
+    # would really have cost rather than what it asked for - and every return
+    # in this book is divided by that figure. Without it the panel shows a round
+    # $100 on every line, which is the one number guaranteed to be wrong.
+    try:
+        qty = exchange.round_qty(symbol, quote / fill) or quote / fill
+    except Exception:
+        qty = quote / fill
+    spent = qty * fill
     storage.execute(
         "INSERT INTO lab_positions(symbol, status, qty, entry_price, entry_time,"
         " entry_quote, entry_prob, model_id, features)"
         " VALUES(?,'open',?,?,?,?,?,?,?)",
-        (symbol, qty, fill, _now(), quote, probability, model_id,
+        (symbol, qty, fill, _now(), spent, probability, model_id,
          json.dumps(context) if context else None))
     return {"action": "buy", "symbol": symbol, "price": fill, "qty": qty,
-            "probability": probability}
+            "quote": spent, "probability": probability}
 
 
 def _sell(position: dict[str, Any], price: float, reason: str,
@@ -897,13 +911,13 @@ class LabTrader:
             self._stop.clear()
             self._thread = threading.Thread(target=self._loop, daemon=True)
             self._thread.start()
-            storage.log_event("info", "Laboratório iniciado")
+            storage.log_event("info", "Laboratório iniciado", source=SOURCE)
             return {"running": True, "message": "started"}
 
     def stop(self) -> dict[str, Any]:
         save_config({"enabled": False})
         self._stop.set()
-        storage.log_event("info", "Laboratório parado")
+        storage.log_event("info", "Laboratório parado", source=SOURCE)
         return {"running": False, "message": "stopped"}
 
     def _loop(self) -> None:
@@ -915,7 +929,7 @@ class LabTrader:
             except Exception as exc:
                 self.last_error = str(exc)
                 storage.log_event("error", f"Lab tick falhou: {exc}",
-                                  {"trace": traceback.format_exc()[-600:]})
+                                  {"trace": traceback.format_exc()[-600:]}, source=SOURCE)
             self.last_tick = _now()
             self.tick_count += 1
             self._stop.wait(max(60, int(config.get("poll_seconds", 900))))
@@ -999,7 +1013,7 @@ class LabTrader:
             if free < quote * (1 + settings.fee_rate + settings.slippage_rate):
                 storage.log_event(
                     "warn", f"Laboratório sem caixa para {row['symbol']}",
-                    {"free": round(free, 2), "needed": quote})
+                    {"free": round(free, 2), "needed": quote}, source=SOURCE)
                 break
             price = prices.get(row["symbol"])
             if price is None:
@@ -1017,7 +1031,7 @@ class LabTrader:
                 "trade",
                 f"Laboratório: {sum(1 for a in actions if a['action'] == 'buy')} compras,"
                 f" {sum(1 for a in actions if a['action'] == 'sell')} vendas",
-                {"day": day, "model_id": model["id"]})
+                {"day": day, "model_id": model["id"]}, source=SOURCE)
         self.last_action = {"day": day, "actions": actions, "basket": basket}
         self._maybe_retrain(config)
         return {"day": day, "actions": actions, "basket": basket,
@@ -1043,7 +1057,7 @@ class LabTrader:
         try:
             train()
         except Exception as exc:
-            storage.log_event("error", f"Retreino do laboratório falhou: {exc}")
+            storage.log_event("error", f"Retreino do laboratório falhou: {exc}", source=SOURCE)
 
     def close_all(self, reason: str = "manual") -> list[dict[str, Any]]:
         positions = open_positions()
@@ -1220,5 +1234,5 @@ def reset() -> dict[str, Any]:
     storage.execute("DELETE FROM lab_equity")
     storage.set_state("lab_last_day", None)
     storage.set_state("lab_last_rebalance", None)
-    storage.log_event("warning", "Ledger do laboratório zerado")
+    storage.log_event("warning", "Ledger do laboratório zerado", source=SOURCE)
     return {"cleared": True}
