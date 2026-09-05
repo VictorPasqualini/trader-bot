@@ -29,7 +29,7 @@ const BOOKS = {
   live: {
     label: 'Livro validado',
     hint: 'Estratégias que passaram na caminhada para a frente, operando adiante '
-        + 'sem reajuste. $100 por posição, teto de 11 posições sobre $2.500. '
+        + 'sem reajuste. $100 por posição, teto de 11 posições. '
         + 'Abaixo, o estudo de saída roda sobre estas mesmas operações.',
     overview: '/overview',
     equity: '/equity',
@@ -39,7 +39,7 @@ const BOOKS = {
     label: 'Laboratório ML',
     hint: 'Modelo de ranking treinado do zero, com liberdade para errar. Escolhe '
         + 'as 3 melhores moedas do dia entre as 18 e rebalanceia por semana. '
-        + '$100 por posição sobre $5.000.',
+        + '$100 por posição.',
     overview: '/lab/overview',
     equity: '/lab/equity',
     events: 'lab',
@@ -266,6 +266,9 @@ async function loadDashboard() {
   state.overview = overview;
   state.equity = equity;
 
+  $('#book-hint').textContent =
+    `${book.hint} Capital de ${money(overview.start_capital, 0)}.`;
+
   setText('#kpi-equity', money(overview.total_value));
   setText('#kpi-equity-delta',
     `${pct(overview.total_return_pct)} sobre ${money(overview.start_capital, 0)}`,
@@ -317,6 +320,9 @@ async function loadExitBook(liveOverview) {
   ]);
   state.exit = overview;
 
+  $('#btn-exit-jump').onclick = () =>
+    $('#exit-study').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
   $('#btn-exit-toggle').textContent = overview.running ? 'Parar' : 'Ligar';
   $('#btn-exit-toggle').classList.toggle('btn-danger', !!overview.running);
   $('#btn-exit-toggle').classList.toggle('btn-primary', !overview.running);
@@ -331,12 +337,46 @@ async function loadExitBook(liveOverview) {
     + `${overview.last_tick ? ` · último ciclo ${dt(overview.last_tick)}` : ''}.`,
     overview.conclusive ? '' : 'muted');
 
+  renderExitVerdict(overview);
   renderExitKpis(overview);
   renderExitArms(overview, liveOverview);
   renderExitEquity(curves, overview);
   renderExitPaired(overview);
   renderExitLedger(open, closed);
   renderEvents(events, '#exit-events-list');
+}
+
+/* The answer, in words, above the fold. The paired difference is the whole
+   result of the study - each pair is the same trade with two exits, so the mean
+   difference is the effect and nothing else - and it was previously readable
+   only from a table near the bottom of the page.
+
+   The sample size travels with it. A verdict card with no count is an invitation
+   to read a winner out of four arms and a handful of trades. */
+function renderExitVerdict(overview) {
+  const rows = Object.entries(overview.paired);
+  $('#exit-verdict').innerHTML = rows.map(([arm, data]) => {
+    const target = `alvo +${arm.slice(1)}%`;
+    if (!data.trades) {
+      return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
+          <span class="vcard-label">regra vs ${target}</span>
+          <strong class="vcard-value muted">sem pares</strong>
+          <span class="vcard-sub">nenhuma operação fechou nos dois</span>
+        </div>`;
+    }
+    const pp = data.rule_minus_target_pp;
+    const ahead = pp > 0 ? 'regra à frente' : pp < 0 ? `${target} à frente` : 'empate';
+    return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
+        <span class="vcard-label">regra vs ${target}</span>
+        <strong class="vcard-value ${cls(pp)}">${signed(pp, 2)} pp</strong>
+        <span class="vcard-sub">${ahead} · ${data.trades} pares ·
+          ${data.rule_ahead}–${data.target_ahead}${data.identical ? `–${data.identical} iguais` : ''}</span>
+      </div>`;
+  }).join('');
+  setText('#exit-verdict-note',
+    `Média por operação, mesma entrada dos dois lados. `
+    + `${overview.note} ${overview.closed_trades} de ~${overview.trades_needed} fechadas.`,
+    overview.conclusive ? '' : 'muted');
 }
 
 /* The study has its own money and shows it, one tile per arm. Folding four arms

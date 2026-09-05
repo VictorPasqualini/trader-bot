@@ -93,8 +93,28 @@ def get_config() -> dict[str, Any]:
 
 
 def save_config(patch: dict[str, Any]) -> dict[str, Any]:
-    config = {**get_config(), **patch}
+    previous = get_config()
+    config = {**previous, **patch}
     storage.set_state("mirror_config", config)
+    # Snapshots carry the capital inside them, so a change of capital would put
+    # a step in every arm's curve at the instant it was made - the same fault
+    # that once made the live book's kill switch fire on an accounting change.
+    #
+    # The live book answers it by keeping its raw snapshots and rebasing at read
+    # time, because those rows record what the account reported and that is
+    # evidence. These rows record nothing of the kind: they are computed from
+    # this book's own ledger, and restating them in place loses no fact. The
+    # differences between points, which are the only thing the chart is for,
+    # survive untouched.
+    before, after = float(previous["capital"]), float(config["capital"])
+    if before != after:
+        storage.execute("UPDATE mirror_equity SET total_value = total_value + ?",
+                        (after - before,))
+        storage.log_event(
+            "info",
+            f"Capital do estudo alterado de {before:,.0f} para {after:,.0f}"
+            " — curvas rebaseadas",
+            {"from": before, "to": after}, source=SOURCE)
     return config
 
 

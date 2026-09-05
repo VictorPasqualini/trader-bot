@@ -850,14 +850,32 @@ only `mirror_positions` and `mirror_equity`. There is no code path from it into
 `positions`, `orders`, `equity_snapshots` or any `lab_` table, so it cannot
 disturb the two tests already running.
 
-Its capital is one figure, $2,500, shared by all four arms rather than
-multiplied by them: the arms are alternative histories of the same money and
-only one of them can be true. Multiplying the base by four would invent capital
-that never existed and divide every reported return by four. The figure is a
-denominator and nothing else — the study places no orders, since it shadows
-trades the live book already made, so it consumes no exchange balance and is
-taken from no book's `start_capital`. Moving that figure would shift the whole
-equity curve of whichever book it came from.
+**The study places no orders.** It is a measurement, not a book: it shadows
+trades the live book has already made and prices exits from recorded candles.
+That is a limitation worth stating plainly — a real order would also pay the
+queue, the partial fill and the spread at the moment it rested — and it is also
+what makes the study affordable, because there is no second account funding it.
+What it can answer honestly is the *paired difference*, since both sides of
+every pair are priced by the same method and any error the method makes is on
+both sides of the subtraction.
+
+Its capital is one figure shared by all four arms rather than multiplied by
+them: the arms are alternative histories of the same money and only one of them
+can be true. Multiplying the base by four would invent capital that never
+existed and divide every reported return by four. The figure is a denominator
+and nothing else, so it is set to the live book's own capital, $5,000 — that
+makes the control arm's percentages directly comparable with the tiles above it,
+and it does not mean $10,000 is at stake anywhere, because the only account with
+money in it is the live book's.
+
+Changing that figure restates the study's stored curves rather than stepping
+them. Equity is written as capital plus P&L, so a new capital would put a cliff
+in all four lines at the instant it was set — the same fault that once made the
+live book's kill switch fire on an accounting change. The live book answers it
+by keeping its raw snapshots and rebasing at read time, because those rows
+record what the account reported. These rows record nothing of the kind; they
+are computed from the study's own ledger, so they are restated in place and the
+differences between points, which are all the chart is for, survive untouched.
 
 Position size is $100, the same as the live book, which is what makes the
 control arm readable: `rule` is the validated book itself, restricted to the
@@ -872,6 +890,12 @@ headline figure without hiding the only thing being measured, so there are four
 tiles; and because all four start from the same capital and the same entries,
 the chart says the whole thing at a glance: where the lines separate is an exit
 that differed, and nothing else.
+
+The *verdict* is not left down there with the detail. A strip under the headline
+tiles states each paired difference in words — which side is ahead, by how many
+percentage points per trade, over how many pairs — with the sample size attached
+to it, and a button that jumps to the study for anyone who wants the workings. A
+result that has to be scrolled for is a result that gets read once.
 
 ## Interpreting results honestly
 

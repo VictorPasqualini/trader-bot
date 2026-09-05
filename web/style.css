@@ -749,3 +749,33 @@ h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; colo
 }
 .kpi-arm { border-left: 3px solid var(--arm, var(--border-soft)); }
 .kpi-arm .kpi-value { font-size: 20px; }
+
+/* The verdict strip. Sits between the headline tiles and the first panel, so
+   the open question is on the same screen as the money it is asked about. */
+.verdict {
+  border: 1px solid var(--border-soft, #232a3d);
+  border-left: 3px solid var(--accent, #4c8dff);
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+  background: var(--panel, #141a29);
+}
+.verdict-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-bottom: 10px;
+}
+.verdict-head h2 { font-size: 15px; margin: 0; }
+.verdict-cards {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+.vcard {
+  border-left: 3px solid var(--arm, var(--border-soft, #232a3d));
+  padding: 6px 0 6px 10px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.vcard-label { font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+               color: var(--muted, #8b94b2); }
+.vcard-value { font-size: 22px; line-height: 1.1; }
+.vcard-sub { font-size: 11px; color: var(--muted, #8b94b2); }
+.verdict .hint { margin: 10px 0 0; }

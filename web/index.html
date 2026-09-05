@@ -115,6 +115,15 @@
         </div>
       </div>
 
+      <div class="verdict" data-book-only="live">
+        <div class="verdict-head">
+          <h2>Sair pela regra ou sair no lucro</h2>
+          <button class="btn btn-small btn-ghost" id="btn-exit-jump">Ver o estudo</button>
+        </div>
+        <div class="verdict-cards" id="exit-verdict"></div>
+        <p class="hint" id="exit-verdict-note">—</p>
+      </div>
+
       <div class="panel" data-book-only="live ml">
         <div class="panel-head">
           <h2>Lucro e perda</h2>
@@ -169,90 +178,11 @@
         </div>
       </div>
 
-      <div class="panel" data-book-only="live">
-        <div class="panel-head">
-          <h2>Sinais agora</h2>
-          <span class="muted" id="signals-summary">—</span>
-        </div>
-        <p class="hint" id="signals-hint">O que cada estratégia está medindo na última
-          vela fechada e quanto falta para disparar. Quem já está comprado mostra a
-          regra de saída que está esperando.</p>
-        <div class="table-wrap">
-          <table id="signals-table">
-            <thead>
-              <tr><th>Par</th><th>Estratégia</th><th>Espera</th>
-                  <th class="num">Valor agora</th><th class="num">Nível</th>
-                  <th class="num">Distância</th><th class="num">Vira no preço</th>
-                  <th></th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="empty" id="signals-empty">Nenhuma alocação configurada.</p>
-      </div>
-
-      <div class="panel" data-book-only="ml">
-        <div class="panel-head">
-          <h2>O modelo</h2>
-          <div class="panel-actions">
-            <button class="btn btn-small btn-ghost" id="btn-lab-train">Retreinar</button>
-            <button class="btn btn-small btn-ghost" id="btn-lab-tick">Rodar ciclo</button>
-            <button class="btn btn-small btn-primary" id="btn-lab-toggle">Ligar</button>
-          </div>
-        </div>
-        <p class="hint">Este livro não escolhe direção do mercado — ele escolhe
-          <em>quais</em> moedas segurar entre as que já estão no universo. A
-          referência não é zero: é segurar as dezoito em partes iguais. Ganhar de
-          zero num mercado de alta não é habilidade.</p>
-        <div id="lab-model-cards" class="stat-grid"></div>
-        <p class="empty" id="lab-model-empty" hidden>Nenhum modelo treinado ainda.</p>
-      </div>
-
-      <div class="panel" data-book-only="ml">
-        <div class="panel-head">
-          <h2>Validação janela a janela</h2>
-          <span class="muted" id="lab-cv-note">—</span>
-        </div>
-        <p class="hint">Caminhada para a frente com expurgo: treina em tudo que
-          veio antes do corte, pula três dias, testa no que vem depois. Cada
-          linha é uma janela que o modelo nunca viu. <strong>vant</strong> é
-          quanto a cesta rendeu por dia acima de segurar o universo inteiro.</p>
-        <div class="table-wrap">
-          <table id="lab-cv-table">
-            <thead>
-              <tr><th>Janela</th><th class="num">Dias</th><th class="num">Giro</th>
-                  <th class="num">Cesta/dia</th><th class="num">Referência</th>
-                  <th class="num">Vantagem</th><th class="num">t</th>
-                  <th class="num">Total</th><th class="num">Ref. total</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel" data-book-only="ml">
-        <div class="panel-head">
-          <h2>Ranking de hoje</h2>
-          <span class="muted" id="lab-rank-note">—</span>
-        </div>
-        <div class="table-wrap">
-          <table id="lab-rank-table">
-            <thead>
-              <tr><th class="num">#</th><th>Par</th><th class="num">Probabilidade</th>
-                  <th class="num">Preço</th><th class="num">7 dias</th>
-                  <th class="num">RSI</th><th class="num">Funding</th><th></th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="empty" id="lab-rank-empty" hidden>Sem modelo ativo.</p>
-      </div>
-
       <!-- ------------------------------------------------------ exit study -->
 
-      <div class="panel panel-study" data-book-only="live">
+      <div class="panel panel-study" data-book-only="live" id="exit-study">
         <div class="panel-head">
-          <h2>Sair pela regra ou sair no lucro</h2>
+          <h2>Cada saída, lado a lado</h2>
           <div class="panel-actions">
             <button class="btn btn-small btn-ghost" id="btn-exit-tick">Rodar ciclo</button>
             <button class="btn btn-small btn-primary" id="btn-exit-toggle">Ligar</button>
@@ -348,6 +278,85 @@
           livro validado ficam na lista abaixo — misturar as duas torna as duas
           ilegíveis.</p>
         <ul class="events" id="exit-events-list"></ul>
+      </div>
+
+      <div class="panel" data-book-only="live">
+        <div class="panel-head">
+          <h2>Sinais agora</h2>
+          <span class="muted" id="signals-summary">—</span>
+        </div>
+        <p class="hint" id="signals-hint">O que cada estratégia está medindo na última
+          vela fechada e quanto falta para disparar. Quem já está comprado mostra a
+          regra de saída que está esperando.</p>
+        <div class="table-wrap">
+          <table id="signals-table">
+            <thead>
+              <tr><th>Par</th><th>Estratégia</th><th>Espera</th>
+                  <th class="num">Valor agora</th><th class="num">Nível</th>
+                  <th class="num">Distância</th><th class="num">Vira no preço</th>
+                  <th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="signals-empty">Nenhuma alocação configurada.</p>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>O modelo</h2>
+          <div class="panel-actions">
+            <button class="btn btn-small btn-ghost" id="btn-lab-train">Retreinar</button>
+            <button class="btn btn-small btn-ghost" id="btn-lab-tick">Rodar ciclo</button>
+            <button class="btn btn-small btn-primary" id="btn-lab-toggle">Ligar</button>
+          </div>
+        </div>
+        <p class="hint">Este livro não escolhe direção do mercado — ele escolhe
+          <em>quais</em> moedas segurar entre as que já estão no universo. A
+          referência não é zero: é segurar as dezoito em partes iguais. Ganhar de
+          zero num mercado de alta não é habilidade.</p>
+        <div id="lab-model-cards" class="stat-grid"></div>
+        <p class="empty" id="lab-model-empty" hidden>Nenhum modelo treinado ainda.</p>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>Validação janela a janela</h2>
+          <span class="muted" id="lab-cv-note">—</span>
+        </div>
+        <p class="hint">Caminhada para a frente com expurgo: treina em tudo que
+          veio antes do corte, pula três dias, testa no que vem depois. Cada
+          linha é uma janela que o modelo nunca viu. <strong>vant</strong> é
+          quanto a cesta rendeu por dia acima de segurar o universo inteiro.</p>
+        <div class="table-wrap">
+          <table id="lab-cv-table">
+            <thead>
+              <tr><th>Janela</th><th class="num">Dias</th><th class="num">Giro</th>
+                  <th class="num">Cesta/dia</th><th class="num">Referência</th>
+                  <th class="num">Vantagem</th><th class="num">t</th>
+                  <th class="num">Total</th><th class="num">Ref. total</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>Ranking de hoje</h2>
+          <span class="muted" id="lab-rank-note">—</span>
+        </div>
+        <div class="table-wrap">
+          <table id="lab-rank-table">
+            <thead>
+              <tr><th class="num">#</th><th>Par</th><th class="num">Probabilidade</th>
+                  <th class="num">Preço</th><th class="num">7 dias</th>
+                  <th class="num">RSI</th><th class="num">Funding</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="lab-rank-empty" hidden>Sem modelo ativo.</p>
       </div>
 
       <div class="panel" data-book-only="live ml">
