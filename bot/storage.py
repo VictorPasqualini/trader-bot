@@ -358,6 +358,56 @@ def get_state(key: str, default: Any = None) -> Any:
 
 # --------------------------------------------------------------------- events
 
+# ------------------------------------------------------------- capital shifts
+#
+# Equity is stored as ``start_capital + realised + unrealised``, so the level
+# carries the configured capital inside it. That is fine while the capital is
+# fixed and wrong the moment it is not: halving it drops every later snapshot by
+# the difference, and a reader comparing across that instant sees a loss the
+# account never took. It happened once, on 2026-09-05, and the kill switch
+# halted entries on a 50% drawdown that was an accounting change.
+#
+# The snapshots are left alone. They record what the account reported and that
+# is evidence. What is recorded alongside them is each change of base, so any
+# reader can express the whole history on the base in force today.
+
+
+def capital_shifts() -> list[dict[str, Any]]:
+    return list(get_state("capital_shifts") or [])
+
+
+def record_capital_shift(previous: float, current: float, ts: str | None = None) -> None:
+    """Note that the notional capital changed, and when."""
+    if previous == current:
+        return
+    shifts = capital_shifts()
+    shifts.append({
+        "ts": ts or datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "from": float(previous), "to": float(current),
+    })
+    shifts.sort(key=lambda row: row["ts"])
+    set_state("capital_shifts", shifts)
+
+
+def equity_series(limit: int | None = None) -> list[dict[str, Any]]:
+    """Equity snapshots restated on the capital base in force now.
+
+    A snapshot written before a change sits on the old base, so it is moved by
+    the sum of every change that came after it. Differences within one base are
+    untouched, which is the property that matters: the curve stops jumping at a
+    change of base and keeps every real gain and loss.
+    """
+    rows = query(
+        "SELECT ts, total_value, open_positions FROM equity_snapshots ORDER BY ts")
+    shifts = capital_shifts()
+    if shifts:
+        for row in rows:
+            row["total_value"] += sum(
+                shift["to"] - shift["from"]
+                for shift in shifts if shift["ts"] > row["ts"])
+    return rows[-limit:] if limit else rows
+
+
 def log_event(level: str, message: str, context: dict[str, Any] | None = None) -> None:
     """Record one event, folding it into the previous row if it is the same one.
 

@@ -52,8 +52,20 @@ def get_config() -> dict[str, Any]:
 
 
 def save_config(patch: dict[str, Any]) -> dict[str, Any]:
-    config = {**get_config(), **patch}
+    previous = get_config()
+    config = {**previous, **patch}
     storage.set_state("bot_config", config)
+    # Capital is not a dial. It is inside every equity snapshot, so changing it
+    # moves the whole curve and every reader of the level has to be told when.
+    before = float(previous.get("start_capital", 0.0))
+    after = float(config.get("start_capital", 0.0))
+    if before and after and before != after:
+        storage.record_capital_shift(before, after)
+        storage.log_event(
+            "info",
+            f"Capital nocional alterado de {before:,.0f} para {after:,.0f}"
+            " — histórico de patrimônio rebaseado",
+            {"from": before, "to": after})
     return config
 
 

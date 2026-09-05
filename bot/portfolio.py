@@ -71,16 +71,20 @@ def settings_for(config: dict[str, Any]) -> dict[str, Any]:
 
 # ------------------------------------------------------------- kill switch
 
+# Both read the rebased series rather than the table: a change of notional
+# capital is not a drawdown, and the raw levels would make the kill switch fire
+# on one. It did, once.
+
+
 def peak_equity() -> float:
-    row = storage.query_one("SELECT MAX(total_value) AS peak FROM equity_snapshots")
-    return float(row["peak"] or 0.0) if row else 0.0
+    series = storage.equity_series()
+    return max((float(row["total_value"]) for row in series), default=0.0)
 
 
 def current_equity(config: dict[str, Any]) -> float:
-    row = storage.query_one(
-        "SELECT total_value FROM equity_snapshots ORDER BY ts DESC LIMIT 1")
-    if row:
-        return float(row["total_value"])
+    series = storage.equity_series(limit=1)
+    if series:
+        return float(series[-1]["total_value"])
     return float(config.get("start_capital", 10_000.0))
 
 

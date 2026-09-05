@@ -43,7 +43,8 @@ BAND_DAYS = 90
 MIN_DAYS_FOR_VERDICT = 14
 
 
-def fingerprint(allocations: list[dict[str, Any]]) -> str:
+def fingerprint(allocations: list[dict[str, Any]],
+                start_capital: float = 0.0, quote_per_trade: float = 0.0) -> str:
     """A stable identity for one book.
 
     Two configurations with the same symbols, intervals, strategies and
@@ -51,6 +52,12 @@ def fingerprint(allocations: list[dict[str, Any]]) -> str:
     they share a baseline. Any change to any of those is a different book and
     earns its own row - including a parameter tweak, which is the change most
     likely to be made casually and least likely to be remembered later.
+
+    Capital and trade size count too, even though the prediction is a
+    percentage and survives a change that preserves the ratio. What does not
+    survive is the denominator: realised is an equity delta over the capital in
+    force, so a segment measured on the wrong capital reports the right trades
+    at the wrong scale.
     """
     parts = sorted(
         json.dumps({
@@ -61,6 +68,7 @@ def fingerprint(allocations: list[dict[str, Any]]) -> str:
         }, sort_keys=True)
         for item in allocations
     )
+    parts.append(f"capital={start_capital:.4f}|quote={quote_per_trade:.4f}")
     return hashlib.sha1("|".join(parts).encode()).hexdigest()[:16]
 
 
@@ -130,7 +138,7 @@ def expectation(config: dict[str, Any],
     if not detail:
         return None
     return {
-        "book": fingerprint(allocations),
+        "book": fingerprint(allocations, start, quote),
         "start_capital": start,
         "quote_per_trade": quote,
         "allocations": len(allocations),
@@ -218,9 +226,11 @@ def _segments() -> list[dict[str, Any]]:
 
 
 def _equity_series() -> list[tuple[datetime, float]]:
+    # Rebased, so a change of notional capital does not appear as a cliff in
+    # the realised curve. The per-segment denominator below handles the other
+    # half of the same problem.
     return [(_parse(row["ts"]), float(row["total_value"]))
-            for row in storage.query(
-                "SELECT ts, total_value FROM equity_snapshots ORDER BY ts")]
+            for row in storage.equity_series()]
 
 
 def _equity_at(series: list[tuple[datetime, float]],
@@ -254,16 +264,21 @@ def report() -> dict[str, Any]:
         return {"status": "sem histórico de patrimônio", "points": [],
                 "baselines": baselines(), "current": None}
 
-    start_capital = float(segments[0]["start_capital"]) or 10_000.0
+    start_capital = float(segments[-1]["start_capital"]) or 10_000.0
     points: list[dict[str, Any]] = []
     # Both curves are cumulative across book changes: a segment starts where the
     # previous one ended, so switching allocations does not reset the score.
-    carried_expected, carried_realised = 0.0, 0.0
+    carried_expected, carried_realised, carried_days = 0.0, 0.0, 0.0
 
     for segment in segments:
         anchor = _equity_at(equity, segment["start"])
         if anchor is None:
             anchor = equity[0][1]
+        # Each segment converts its own dollars at its own capital. A book that
+        # halves its capital and its trade size predicts the same percentage,
+        # and would report half of it if every segment were divided by the
+        # first one's capital.
+        base = float(segment["start_capital"]) or start_capital
         rate_per_day = segment["return_pct_month"] / 30.0
         # One point per day, plus the segment's final moment, which is what the
         # "now" reading is read from.
@@ -273,9 +288,14 @@ def report() -> dict[str, Any]:
         for moment in marks:
             days = (moment - segment["start"]).total_seconds() / 86400
             expected = carried_expected + rate_per_day * days
-            width = _band_width(segment, days)
+            # Dispersion accumulates over the life of the run, not over the
+            # life of a segment. The realised curve carries across a book
+            # change, so a band that restarted at zero width would call the
+            # first hours after any change a failure - including a change of
+            # capital that predicts exactly the same percentage.
+            width = _band_width(segment, carried_days + days)
             value = _equity_at(equity, moment)
-            realised = (carried_realised + (value - anchor) / start_capital * 100
+            realised = (carried_realised + (value - anchor) / base * 100
                         if value is not None else None)
             points.append({
                 "time": moment.isoformat(timespec="seconds"),
@@ -288,8 +308,9 @@ def report() -> dict[str, Any]:
             })
         last = _equity_at(equity, segment["end"])
         carried_expected += rate_per_day * span
+        carried_days += span
         if last is not None:
-            carried_realised += (last - anchor) / start_capital * 100
+            carried_realised += (last - anchor) / base * 100
 
     # Duplicate timestamps appear where one segment ends and the next begins.
     seen, unique = set(), []

@@ -82,9 +82,7 @@ def overview() -> dict[str, Any]:
     gross_win = sum(p["pnl"] for p in wins)
     gross_loss = -sum(p["pnl"] for p in losses)
 
-    snapshots = storage.query(
-        "SELECT ts, total_value FROM equity_snapshots ORDER BY ts"
-    )
+    snapshots = storage.equity_series()
     max_dd, sharpe = _drawdown_and_sharpe([s["total_value"] for s in snapshots])
 
     # Fees are already inside every realised number; this is only so the
@@ -143,11 +141,7 @@ def overview() -> dict[str, Any]:
 
 
 def equity_curve(limit: int = 500) -> list[dict[str, Any]]:
-    rows = storage.query(
-        "SELECT ts, total_value, open_positions FROM equity_snapshots ORDER BY ts DESC LIMIT ?",
-        (limit,),
-    )
-    return list(reversed(rows))
+    return storage.equity_series(limit=limit)
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -470,7 +464,7 @@ def readiness() -> dict[str, Any]:
     days_live = ((datetime.now(timezone.utc) - started).total_seconds() / 86400
                  if started else 0.0)
 
-    snapshots = storage.query("SELECT total_value FROM equity_snapshots ORDER BY ts")
+    snapshots = storage.equity_series()
     observed_dd, _ = _drawdown_and_sharpe([s["total_value"] for s in snapshots])
     realised = sum(p["pnl"] or 0.0 for p in closed)
 

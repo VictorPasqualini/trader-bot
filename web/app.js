@@ -597,8 +597,10 @@ function renderPositions(positions) {
       <td>${p.strategy
         ? `<span class="chip">${escape(p.strategy)}</span> <span class="muted">${escape(p.interval)}</span>`
         : `<span class="chip">ranking</span> <span class="muted">p ${nf(p.entry_prob, 3)}</span>`}</td>
+      <td class="num">${money(p.entry_quote)}</td>
       <td class="num">${nf(p.entry_price, 4)}</td>
       <td class="num">${nf(p.mark_price, 4)}</td>
+      <td class="num">${money(p.value)}</td>
       <td class="num ${cls(p.unrealised_pnl)}">${signed(p.unrealised_pnl)} <span class="muted">${pct(p.unrealised_pct)}</span></td>
     </tr>`).join('');
 }
