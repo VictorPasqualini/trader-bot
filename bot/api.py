@@ -13,8 +13,9 @@ from pydantic import BaseModel, Field
 from . import backtest as bt
 from . import coverage
 from . import feeds
+from . import lab
 from . import parity
-from . import report, research, signals, storage
+from . import report, research, sentiment, signals, storage
 from . import portfolio, screening, tracking, walkforward
 from . import strategies as st
 from .config import WEB_DIR, settings
@@ -37,8 +38,14 @@ async def lifespan(_app: FastAPI):
     # /api/bot/stop. The dataset's value is being unbroken, so pausing trading
     # to change a strategy must not put a hole in it.
     feeds.collector.start()
+    # The experiment resumes on the same terms as the live book: only if it was
+    # running when the process died, and only if it has a model to run.
+    lab_config = lab.get_config()
+    if lab_config.get("enabled") and lab.active_model() is not None:
+        lab.trader.start()
     yield
     bot.stop()
+    lab.trader.stop()
     feeds.collector.stop()
 
 
@@ -420,6 +427,106 @@ def bot_reset() -> dict[str, Any]:
         storage.set_state(f"standaside:{allocation['symbol']}", False)
     storage.log_event("info", "Trading history reset")
     return {"reset": True}
+
+
+# ----------------------------------------------------------------------- lab
+#
+# The parallel experiment. Every route is prefixed and every table it touches is
+# its own, so nothing here can reach the live book's ledger.
+
+
+@app.get("/api/lab/overview")
+def lab_overview() -> dict[str, Any]:
+    return lab.overview()
+
+
+@app.get("/api/lab/status")
+def lab_status() -> dict[str, Any]:
+    return lab.trader.status()
+
+
+@app.get("/api/lab/equity")
+def lab_equity(limit: int = 500) -> list[dict[str, Any]]:
+    return lab.equity_curve(limit)
+
+
+@app.get("/api/lab/trades")
+def lab_trades(limit: int = 200) -> list[dict[str, Any]]:
+    return lab.closed_positions(limit)
+
+
+@app.get("/api/lab/signals")
+def lab_signals() -> dict[str, Any]:
+    """Today's ranking. The top ``top_k`` are what the book wants to hold."""
+    return lab.score_today()
+
+
+@app.get("/api/lab/models")
+def lab_models(limit: int = 20) -> list[dict[str, Any]]:
+    return lab.models(limit)
+
+
+@app.post("/api/lab/train")
+def lab_train() -> dict[str, Any]:
+    """Kick off a retrain. Takes about a minute, so it does not block the call."""
+    return lab.train_async()
+
+
+@app.get("/api/lab/train/status")
+def lab_train_status() -> dict[str, Any]:
+    return lab.training_status()
+
+
+@app.post("/api/lab/config")
+def lab_config(patch: dict[str, Any]) -> dict[str, Any]:
+    return lab.save_config(patch)
+
+
+@app.post("/api/lab/start")
+def lab_start() -> dict[str, Any]:
+    return lab.trader.start()
+
+
+@app.post("/api/lab/stop")
+def lab_stop() -> dict[str, Any]:
+    return lab.trader.stop()
+
+
+@app.post("/api/lab/tick")
+def lab_tick(force: bool = False) -> dict[str, Any]:
+    return lab.trader.tick(force=force)
+
+
+@app.post("/api/lab/close-all")
+def lab_close_all() -> dict[str, Any]:
+    return {"closed": lab.trader.close_all("manual")}
+
+
+@app.post("/api/lab/reset")
+def lab_reset() -> dict[str, Any]:
+    """Wipe the experiment's ledger. Trained models are kept deliberately."""
+    lab.trader.stop()
+    return lab.reset()
+
+
+# ----------------------------------------------------------------- sentiment
+
+
+@app.get("/api/sentiment")
+def sentiment_status(days: int = 120) -> dict[str, Any]:
+    return {**sentiment.status(), "series": sentiment.daily_series(days)}
+
+
+@app.post("/api/sentiment/score")
+def sentiment_score(limit: int = 500) -> dict[str, Any]:
+    """Score whatever is still unscored. Normally the collector has done it."""
+    return sentiment.score_pending(limit)
+
+
+@app.post("/api/sentiment/retry")
+def sentiment_retry() -> dict[str, Any]:
+    """Try loading the model again after a failed download."""
+    return sentiment.retry_load()
 
 
 # -------------------------------------------------------------------- static

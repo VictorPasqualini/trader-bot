@@ -38,6 +38,10 @@ per-strategy breakdown, updated live.
 7. **Reports** everything in a local dashboard with no build step: every entry
    and exit, per coin, with the indicator values that triggered it, the strategy
    that decided it, the result in cash and percent, and how long it took.
+8. **Runs a second, separate book** on the same screen: a machine-learning
+   experiment that ranks the universe daily instead of following rules. It has
+   its own tables, its own paper capital and its own controls, and it cannot
+   touch the validated book's ledger.
 
 ![stack](https://img.shields.io/badge/python-3.11%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
 
@@ -520,13 +524,13 @@ The sidebar has five views, and they are ordered by how often you need them.
 
 | Menu | What it is for |
 | --- | --- |
-| **Painel** | The state of the money right now: equity curve, P&L broken into realised and open, win rate, profit factor, drawdown, Sharpe, and what every allocation is currently watching. The page to open first and to leave open. |
-| **Laboratório** | Where allocations come from. Runs the parameter search over history, ranks candidates on out-of-sample results only, and lets you promote the survivors into the live book. Nothing here trades; it produces candidates. |
+| **Painel** | The state of the money right now, for either of the two books. A switch at the top picks between *Livro validado* — the rule-based allocations that passed the walk-forward — and *Laboratório ML*, the ranking experiment. Both are drawn with the same tiles and the same arithmetic: equity curve, P&L split into realised and open, win rate, profit factor, drawdown. The page to open first and to leave open. |
+| **Pesquisa** | Where allocations come from. Runs the parameter search over history, ranks candidates on out-of-sample results only, and lets you promote the survivors into the live book. Nothing here trades; it produces candidates. |
 | **Operações** | The audit trail. Every buy and sell in the order they happened, and the same trades grouped by coin with the signal that opened and closed each one. Answers "what did it do, and why". |
 | **Validação** | Whether the book deserves real money. A checklist that can say no, plus the walk-forward table behind it — each allocation re-tested quarter by quarter on the parameters it is actually deployed with. |
 | **Ajustes** | Execution mode (`paper` or `testnet`), size per order, portfolio risk limits, and the list of active allocations. The only view that changes what the bot does. |
 
-1. **Laboratório** — pick pairs and timeframes, hit *Rodar pesquisa*. Prefer
+1. **Pesquisa** — pick pairs and timeframes, hit *Rodar pesquisa*. Prefer
    `1d` and `4h` with 5000 candles, for the reason above. A few minutes later
    the ranking fills in. Click any row for its equity curve and the
    in-sample/out-of-sample comparison.
@@ -633,6 +637,8 @@ bot/
   coverage.py     which candle closes the bot was actually awake for
   tracking.py     the expectation frozen when the book shipped, against what happened
   feeds.py        point-in-time collection of market context (see below)
+  sentiment.py    FinBERT scoring of headlines, at the moment they arrive
+  lab.py          the parallel experiment: cross-sectional ranking model + its own book
   report.py       dashboard aggregations
   storage.py      SQLite persistence
   api.py          FastAPI app
@@ -712,11 +718,73 @@ and no threshold rule beats the base rate. A feature known to be inert is useful
 a model that finds signal in it has found overfitting, and that is worth being
 able to detect.
 
+Headlines are scored the moment they arrive, by FinBERT running locally
+(`bot/sentiment.py`). This is not an optimisation. A sentiment model trained
+after the fact carries the outcome in its weights, so scoring old headlines
+today leaks the future in a way no timestamp discipline can catch — the leak is
+inside the scorer, not in the data. Scoring at collection time is the only
+version that can be walked forward honestly. Each row stores the score, the
+model that produced it and when it was produced, because the day the model is
+upgraded is the day older scores stop being comparable.
+
 Collection runs on the server process, not the trading loop, and `/api/bot/stop`
 does not stop it. The dataset's whole value is being unbroken; pausing trading to
 change a strategy must not put a hole in it. `POST /api/feeds/backfill` pulls the
 two series that have downloadable history, and is worth running once on a new
-install. Progress is on the Laboratório tab.
+install. Progress is on the Pesquisa tab.
+
+## The parallel experiment
+
+Everything above is rule-based: an indicator crosses a level and the book acts.
+`bot/lab.py` is the other thing — a gradient-boosted model that reads 36
+features a day across the 18-coin universe and decides *which* coins to hold. It
+runs beside the forward test, on its own paper capital, and it is allowed to be
+wrong out loud.
+
+It is isolated by schema rather than by a flag. It owns `lab_positions`,
+`lab_equity` and `lab_models`, and there is no code path from it into
+`positions`, `orders` or `equity_snapshots`. The forward test is a test of a
+frozen expectation; a second book that could write into its ledger would end it.
+
+**It does not predict the market.** That question was tried first and it is not
+answerable on this data: eighteen coins correlated around 0.8 give one market
+opinion dressed up as eighteen, and a model confident enough to be selective
+fires on about twenty days in six years — all of them crashes. So the question
+asked instead is cross-sectional: given that the book is in the market anyway,
+holding three coins out of eighteen, does the model pick better than a coin
+toss? The label is whether a coin beat *that day's median coin*, which puts
+market direction on both sides of the comparison, where it cancels.
+
+The benchmark is holding all eighteen equally weighted, not zero and not cash.
+Beating zero in a bull market is not a skill.
+
+| Measured out of sample | |
+| --- | --- |
+| Information coefficient | +0.0934 over 1,319 days, t = 11.64, positive in all 6 folds |
+| Net of the benchmark | +0.117% a day, 5 of 6 folds ahead |
+| Same test, returns shuffled within each day | −0.075% a day |
+| Turnover | 2.2% a day, against a 0.30% round trip |
+
+The third row is the control and it is permanent, not a one-off check. Shuffling
+returns *within* a day preserves every day-level fact — the market's move, its
+dispersion, which days were violent — and destroys only the coin selection. If
+it ever stops losing, the edge was never coin picking, and the dashboard says so
+in those words.
+
+The fourth row is why the book is sticky. The raw signal is worth about +0.12% a
+day and a round trip costs 0.30%, so a model that is right every day and acts
+every day loses money. It holds a basket of three, keeps a coin while it stays
+inside the top twelve, and rebalances weekly. Cost is charged on turnover only.
+
+Both books also report `capital_at_work` next to their capital. A basket of
+three at 100 USDT deploys 300 whatever the capital line says, so a return
+computed on capital would understate the experiment about seventeen-fold and the
+comparison between the two books would really be a comparison of how much idle
+cash each is sitting on.
+
+`POST /api/lab/train` retrains — six purged walk-forward folds with a three-day
+embargo, about a minute — and the *Laboratório ML* tab shows every fold, the
+controls and today's full ranking with the basket marked.
 
 ## Interpreting results honestly
 

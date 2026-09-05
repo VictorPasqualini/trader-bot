@@ -1259,6 +1259,147 @@ stopping the bot does not stop it. The dataset's value is being unbroken.
 there will be a point-in-time dataset that can be walked forward honestly. Until
 then the only claim is that the clock has started.
 
+## Phase 18 — A second book, and the arithmetic that killed its first design ✅
+
+The instruction was to try for profit by trial and error in parallel with the
+forward test, at 100 USDT a trade, with half the patrimony on each side. The
+constraint that made it interesting is that the forward test must not be
+disturbed: it is a test of a frozen expectation, and a second book that could
+touch its ledger would end it.
+
+So the experiment is isolated by schema rather than by a flag. It owns
+`lab_positions`, `lab_equity` and `lab_models`, and there is no write path from
+`bot/lab.py` into `positions`, `orders` or `equity_snapshots`. A flag can be
+flipped by a bug; a missing table cannot.
+
+### The first design was untestable, and the second one is the phase
+
+The obvious build is a classifier on "will this coin clear the round trip
+tomorrow", trading whenever the probability crosses a threshold. It was built,
+and it does not work here — not because it loses, but because it cannot be
+judged.
+
+Eighteen crypto pairs move with a pairwise correlation around 0.8. A confident
+model is confident about all eighteen on the same day, so a threshold high
+enough to be selective fires on about twenty days in six years, and those days
+are four crashes. Two hundred rows of "evidence" are four observations. The
+first version of this file reported a +3.26% edge at a 72% hit rate on 171
+trades; counted by calendar day, as they should have been, those trades were 24
+days and the t statistic fell from above 6 to 0.87.
+
+That is the clustering illusion, and it is now designed out rather than
+corrected for. Every statistic in `bot/lab.py` is one number per calendar day.
+
+The replacement question is cross-sectional: given that the book is in the
+market anyway, holding three coins out of eighteen, does the model pick better
+than a coin toss? It trades every day, so the sample grows daily instead of
+waiting for the next crash, and market direction sits on both sides of the
+comparison and cancels.
+
+### Two fixes, both about what is being compared to what
+
+The first cross-sectional run lost 0.083% a day and was positive in none of the
+six folds. The feature importances said why: `btc_ret_1`, `btc_ret_7`, `fng`,
+`fng_chg_7`, `dow` — every one of them identical across all eighteen coins on a
+given day. The label was still absolute (`return > cost`), so on a down day
+every coin is a zero and the only way to score is to forecast the market. A
+ranking inherits nothing from that.
+
+The label is now relative: `y = (return > that day's median return)`. Cost was
+removed from it deliberately. Whether a position pays for itself depends on
+whether it was already held, which is a fact about the book that day and not a
+property of the coin.
+
+Twelve within-day percentile ranks and a breadth feature were added alongside,
+so the model can see where a coin sits among its peers rather than only where it
+sits in its own history.
+
+The second fix is the benchmark. It is not zero and it is not cash; it is
+holding all eighteen equally weighted, rebalanced on the same schedule. Beating
+zero in a bull market is not a skill, and a long-only book measured against zero
+will always look like one.
+
+### Separating "is there a signal" from "does it survive the fees"
+
+The single most useful diagnostic was the information coefficient — the mean
+within-day Spearman correlation between predicted and realised order. It is free
+of basket size, stickiness, rebalance cadence and fees, so it answers only the
+first question.
+
+**IC = +0.0934 over 1,319 out-of-sample days, t = 11.64, positive in all six
+folds.** The signal exists.
+
+The money spread between the top five and the bottom five is +0.124% a day at
+t = 2.09. Against a 0.30% round trip, that localises the entire problem: the
+edge is real and it is smaller than the toll. Turnover was 0.233 a day, so the
+book was paying about 0.07% a day to harvest 0.12%.
+
+Three changes cut turnover to 0.022 a day: a basket of three rather than five, a
+stickiness rule that keeps a held coin while it stays inside the top twelve, and
+a rebalance every seven days instead of every day. Cost is charged on turnover
+only — a coin held through a rebalance pays nothing, which is the whole reason
+stickiness is worth anything.
+
+| | Daily rebalance, top 5 | Sticky, weekly, top 3 |
+| --- | --- | --- |
+| Turnover per day | 0.233 | 0.022 |
+| Net per day | −0.083% | +0.117% |
+| Folds beating the benchmark | 0 of 6 | 5 of 6 |
+
+### What is not being claimed
+
+A sweep over 120 combinations of basket size, stickiness and cadence produced a
+best t of 2.19. That number is the maximum of 120 correlated draws and it is
+selection, not evidence, and it is written into the source comments as such. The
+evidence is the IC. What the sweep contributes is a mechanism: t rises
+monotonically as turnover falls, which is what a real-but-thin edge behind a
+fixed toll is supposed to look like.
+
+The permanent control is a shuffle of the realised returns *within each day*.
+That preserves every day-level fact — the market's move, its dispersion, which
+days were violent — and destroys only the coin selection. It currently returns
+−0.0748% a day against the real +0.1167%, which is the shape a genuine
+cross-sectional edge should produce. If the two ever converge, the edge was
+never coin picking, and the dashboard says so in words.
+
+### Sentiment, scored at the moment of collection
+
+Phase 17 established that a model must condition on `observed_at`, not on the
+publisher's `published_at`. Scoring headlines has the same problem one level
+deeper: a sentiment model trained after the fact carries the outcome in its
+weights, and no timestamp discipline can undo that. Scoring at collection time
+is the only version that is honest.
+
+`bot/sentiment.py` runs FinBERT (`ProsusAI/finbert`) over each headline as it
+arrives, storing the score, the model name and the moment it was scored. The
+model name is stored per row because the day the model is upgraded is the day
+the older scores stop being comparable, and that has to be visible rather than
+inferred.
+
+The features are wired into the panel already but gated: a feature present for
+less than 30% of the sample is a date in disguise, and the model would learn
+"this is recent" rather than "this is news". They enter automatically once
+coverage crosses the floor, which will take about a year.
+
+### Capital, and an accounting fix that both books needed
+
+Half the patrimony to each side, at 100 USDT a trade as instructed. The live
+book was halved to match — capital and position size together, so its 55%
+utilisation ratio is unchanged and the forward test still measures the same
+strategy it was measuring the day before.
+
+That exposed a real defect in the comparison. A basket of three at 100 USDT is
+300 at work whatever the capital line says, so a return computed on capital
+understates the experiment by about seventeen times, and the two books would
+have been compared on how much idle cash each happened to be sitting on. Both
+now report `capital_at_work` and `return_on_capital_at_work_pct` alongside the
+capital-line figures. Both numbers are true and they answer different questions:
+one is how the money is doing, the other is whether the idea is any good.
+
+**Outcome:** the dashboard has two central tabs sharing one set of metrics. The
+experiment is allowed to be wrong out loud, and it reports its own controls next
+to its own results. The forward test is untouched.
+
 ## Next
 
 Ordered by expected value, highest first.
@@ -1280,15 +1421,22 @@ beating a long benchmark with a long-only book in a rally is not the thing this
 book is for. Both need the forward test to finish first — changing what gets
 traded now would end the test of what was measured.
 
-### 3. A directional model, once there is data to test it on
+### 3. Promote or bury the ranking model
 
-Phase 17 started the clock. When open interest, positioning and headlines have a
-year of point-in-time history, the model goes in as a `Strategy` in the existing
-catalogue — not as a parallel evaluation path. It then faces the same
-walk-forward, the same regime labelling and the same harsh verdict as everything
-else. A model judged by a looser rule than the rest of the book will always look
-better than the rest of the book. Target daily bars: at 1h the cost line requires
-an accuracy above 100% on BTC.
+Phase 18 built it as a separate book on purpose: it is an experiment, and an
+experiment that shares a ledger with a frozen forward test contaminates it. That
+separation is temporary and has an expiry condition. If the paper book tracks
+its measured +0.117% a day over a few months, the model goes into the strategy
+catalogue as a `Strategy` and faces the same walk-forward, the same regime
+labelling and the same harsh verdict as everything else — a model judged by a
+looser rule than the rest of the book will always look better than the rest of
+the book. If it does not track, it is deleted and the phase stands as a measured
+negative.
+
+The point-in-time features from Phase 17 enter on their own schedule. Sentiment
+and positioning are already wired into the panel and gated at 30% coverage, so
+they arrive when there is enough history to walk them forward, around a year
+from the start of collection, and not before.
 
 ### 4. Short and market-neutral
 
@@ -1350,3 +1498,16 @@ market-neutral comparison.
 | Over-fetch on every poll | A unique index makes the overlap free, and it means a week of downtime heals itself instead of leaving a permanent hole |
 | Collection runs with the server, not with the bot | Stopping trading to change a strategy must not put a gap in a dataset whose only value is being unbroken |
 | Any predictor targets daily bars | At 1h the round trip exceeds BTC's average move, so break-even needs accuracy above 100% |
+| The parallel experiment gets its own tables, not a flag | A flag can be flipped by a bug and would put the experiment's trades into the ledger of a frozen forward test; a missing write path cannot |
+| Every lab statistic is one number per calendar day | Eighteen correlated coins firing together is one observation; counted by row the first version reported t above 6 on trades that were 24 days and a true t of 0.87 |
+| Rank the universe, do not threshold a probability | A threshold selective enough to be useful fired on 20 days in 6 years, all of them crashes; a ranking trades every day and grows its own sample |
+| Label against the day's median, not against a fixed cost | With an absolute label every coin is a zero on a down day, so the model learns to forecast the market and the ranking inherits nothing from it |
+| Cost is charged on turnover, never in the label | Whether a position pays for itself depends on whether it was already held, which is a fact about the book that day and not a property of the coin |
+| The benchmark is the equal-weight universe | Beating zero in a bull market with a long-only book is not a skill; the honest comparison is against holding everything |
+| Report the information coefficient separately from the money | IC is free of basket size, stickiness, cadence and fees, so it says whether a signal exists at all - a question that must be answered before asking whether it survives the toll |
+| A parameter sweep's best t is not evidence | The winning 2.19 is the maximum of 120 correlated draws; what the sweep shows is a mechanism, that t rises as turnover falls |
+| Keep the shuffled control forever, not just once | It preserves every day-level fact and destroys only coin selection, so it is the one test that can tell an edge from a market call |
+| Score headlines at collection time | Contamination from a sentiment model lives in its weights, where no timestamp discipline can reach it; only scoring point-in-time avoids it |
+| Store the sentiment model name on every row | The day the model is upgraded is the day older scores stop being comparable, and that has to be visible rather than inferred |
+| A feature under 30% coverage is excluded automatically | Otherwise it is a date in disguise and the model learns "this is recent" instead of "this is news" |
+| Report capital at work beside capital | A basket of three at 100 USDT deploys 300 whatever the capital line says; comparing the two books on the capital line compares how much idle cash each is sitting on |

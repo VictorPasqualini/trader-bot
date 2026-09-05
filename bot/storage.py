@@ -185,6 +185,68 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_headline_guid
 CREATE INDEX IF NOT EXISTS idx_headline_seen
     ON feed_headlines(observed_at);
 
+-- The parallel experiment: a model that is allowed to be wrong, kept in its
+-- own tables rather than sharing the live book's. The live book is a forward
+-- test whose value is that nothing has touched it, so the experiment gets no
+-- write path into positions, orders or equity_snapshots at all. Isolation by
+-- schema, not by a flag someone can forget to filter on.
+CREATE TABLE IF NOT EXISTS lab_positions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    symbol      TEXT NOT NULL,
+    status      TEXT NOT NULL DEFAULT 'open',
+    qty         REAL NOT NULL,
+    entry_price REAL NOT NULL,
+    entry_time  TEXT NOT NULL,
+    entry_quote REAL NOT NULL,
+    -- The model's probability at entry, and the model that produced it. Two
+    -- trades taken at 0.51 and 0.80 are not the same trade, and a book that
+    -- cannot tell them apart cannot tell whether the probability means
+    -- anything.
+    entry_prob  REAL,
+    model_id    INTEGER,
+    exit_price  REAL,
+    exit_time   TEXT,
+    exit_quote  REAL,
+    exit_prob   REAL,
+    pnl         REAL,
+    return_pct  REAL,
+    reason      TEXT,
+    features    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lab_positions ON lab_positions(status, entry_time DESC);
+
+CREATE TABLE IF NOT EXISTS lab_equity (
+    ts              TEXT PRIMARY KEY,
+    total_value     REAL NOT NULL,
+    free_quote      REAL NOT NULL,
+    positions_value REAL NOT NULL,
+    open_positions  INTEGER NOT NULL
+);
+
+-- One row per training run, kept forever. A model that is retrained weekly and
+-- overwritten leaves no way to ask whether this week's version is better than
+-- the one that took last month's trades, which is the only question that
+-- matters about retraining.
+CREATE TABLE IF NOT EXISTS lab_models (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    trained_at   TEXT NOT NULL,
+    rows         INTEGER NOT NULL,
+    features     TEXT NOT NULL,
+    params       TEXT NOT NULL,
+    -- Purged walk-forward results, measured against holding the whole universe
+    -- equally weighted rather than against zero.
+    cv           TEXT NOT NULL,
+    -- Share of days the model's basket beat that benchmark.
+    accuracy     REAL NOT NULL,
+    edge_pct     REAL NOT NULL,
+    -- How many coins the basket holds. Positions are chosen by rank, so there
+    -- is no probability cut-off to store.
+    top_k        INTEGER NOT NULL,
+    active       INTEGER NOT NULL DEFAULT 0,
+    blob         TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_lab_models ON lab_models(trained_at DESC);
+
 CREATE TABLE IF NOT EXISTS kv (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -215,6 +277,11 @@ ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("orders", "fee_asset", "TEXT"),
     ("events", "first_ts", "TEXT"),
     ("events", "repeats", "INTEGER NOT NULL DEFAULT 1"),
+    # A score is only interpretable next to the model that produced it, so the
+    # model name is stored per row rather than assumed. See bot/sentiment.py.
+    ("feed_headlines", "sentiment", "REAL"),
+    ("feed_headlines", "sentiment_model", "TEXT"),
+    ("feed_headlines", "scored_at", "TEXT"),
 )
 
 

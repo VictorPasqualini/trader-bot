@@ -93,6 +93,8 @@ def overview() -> dict[str, Any]:
     # configured rate fills in for orders that predate the measurement - the
     # testnet reports zero, which is true there and is why the two have to be
     # distinguishable rather than averaged.
+    capital_at_work = float(config.get("quote_per_trade", 0.0)) * int(
+        config.get("max_positions", 0))
     turnover = storage.query_one(
         "SELECT COALESCE(SUM(quote), 0) AS total FROM orders")["total"]
     charged = storage.query_one(
@@ -107,9 +109,17 @@ def overview() -> dict[str, Any]:
         "fees_measured_orders": charged["known"],
         "fees_total_orders": charged["orders"],
         "start_capital": round(start, 2),
+        # What the allocations can actually put to work, which is not the same
+        # as what they were given. Reported next to the return on capital so the
+        # two books can be compared on the strategy rather than on how much idle
+        # cash each happens to be sitting on.
+        "capital_at_work": round(capital_at_work, 2),
         "total_value": round(total, 2),
         "total_pnl": round(realised + unrealised, 2),
         "total_return_pct": round((total / start - 1) * 100, 2) if start else 0.0,
+        "return_on_capital_at_work_pct": round(
+            (realised + unrealised) / capital_at_work * 100, 2
+        ) if capital_at_work else 0.0,
         "realised_pnl": round(realised, 2),
         "unrealised_pnl": round(unrealised, 2),
         "invested": round(invested, 2),

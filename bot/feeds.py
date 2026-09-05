@@ -272,6 +272,18 @@ def collect_headlines() -> int:
     written = record_headlines(rows)
     if failures and not rows:
         raise RuntimeError("every news source failed: " + ", ".join(failures))
+    if written:
+        # Scored here rather than in bulk later, and deliberately. A model run
+        # over an archive knows how the archive turned out; one run at
+        # collection time cannot. See bot/sentiment.py. A scorer that is
+        # missing or broken leaves the column NULL and is not allowed to take
+        # the collector down with it.
+        try:
+            from . import sentiment
+
+            sentiment.score_pending()
+        except Exception as exc:
+            storage.log_event("warn", f"Sentimento não pontuado: {exc}")
     return written
 
 

@@ -693,3 +693,42 @@ h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; colo
   letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis;
 }
 .headlines .muted { margin-left: 6px; font-size: 11px; }
+
+/* -------------------------------------------------- the two books, switched */
+
+.book-switch { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+.book-switch .hint { margin: 0; }
+
+.seg-book { align-self: flex-start; }
+.seg-book .seg-btn { padding: 8px 22px; font-size: 13.5px; font-weight: 550; }
+
+.panel-actions { display: flex; align-items: center; gap: 8px; }
+
+/* One card per measured fact, so the model's evidence sits beside its result
+   instead of underneath it. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.stat-card {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft); border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.stat-card .stat-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--faint);
+}
+.stat-card .stat-value {
+  font-size: 19px; font-weight: 620; font-variant-numeric: tabular-nums;
+}
+.stat-card .stat-note { font-size: 11.5px; color: var(--muted); line-height: 1.45; }
+.stat-card.warn { border-color: #4a3a1c; }
+.stat-card.warn .stat-value { color: var(--warn, #f0b64a); }
+
+/* The rows the model actually wants to hold, so the basket is visible without
+   counting down from the top of the ranking. */
+#lab-rank-table tr.row-on { background: rgba(25, 214, 155, 0.06); }
+#lab-rank-table tr.row-on td:first-child { box-shadow: inset 2px 0 0 var(--pos); }

@@ -15,11 +15,36 @@ const state = {
   tradesMode: 'live',
   breakdown: null,
   breakdownGroup: 'by_strategy',
+  book: 'live',
+  lab: null,
+};
+
+/* The two books, side by side and measured identically. The live one is a
+   forward test of strategies that already survived a walk-forward; the other is
+   an experiment that is allowed to be wrong. Keeping them on one screen with
+   one set of metrics is the whole point - a comparison where each side reports
+   its own favourite number is not a comparison. */
+const BOOKS = {
+  live: {
+    label: 'Livro validado',
+    hint: 'Estratégias que passaram na caminhada para a frente, operando adiante '
+        + 'sem reajuste. $250 por posição, teto de 11 posições sobre $5.000.',
+    overview: '/overview',
+    equity: '/equity',
+  },
+  ml: {
+    label: 'Laboratório ML',
+    hint: 'Modelo de ranking treinado do zero, com liberdade para errar. Escolhe '
+        + 'as 3 melhores moedas do dia entre as 18 e rebalanceia por semana. '
+        + '$100 por posição sobre $5.000.',
+    overview: '/lab/overview',
+    equity: '/lab/equity',
+  },
 };
 
 const VIEW_META = {
   dashboard: ['Painel', 'Resultado consolidado das estratégias em operação'],
-  lab: ['Laboratório', 'Otimiza no histórico antigo e valida no que ficou de fora'],
+  lab: ['Pesquisa', 'Otimiza no histórico antigo e valida no que ficou de fora'],
   trades: ['Operações', 'Cada entrada e saída, moeda a moeda, com o sinal que a disparou'],
   validation: ['Validação', 'A mesma configuração testada trimestre a trimestre, sem reajuste'],
   settings: ['Ajustes', 'Modo de execução, risco por operação e estratégias ativas'],
@@ -220,8 +245,16 @@ async function loadStatus() {
 }
 
 async function loadDashboard() {
-  const [overview, equity, breakdown, events] = await Promise.all([
-    api('/overview'), api('/equity'), api('/breakdown'), api('/events?limit=30'),
+  const book = BOOKS[state.book];
+  $$('[data-book-only]').forEach((panel) => {
+    panel.hidden = panel.dataset.bookOnly !== state.book;
+  });
+  $('#book-hint').textContent = book.hint;
+  $$('#book-toggle .seg-btn').forEach((button) =>
+    button.classList.toggle('is-on', button.dataset.book === state.book));
+
+  const [overview, equity, events] = await Promise.all([
+    api(book.overview), api(book.equity), api('/events?limit=30'),
   ]);
   state.overview = overview;
   state.equity = equity;
@@ -238,15 +271,165 @@ async function loadDashboard() {
   setText('#kpi-winrate-sub', `${overview.wins}G / ${overview.losses}P em ${overview.closed_trades}`);
   setText('#kpi-pf', overview.profit_factor >= 999 ? '∞' : nf(overview.profit_factor, 2));
   setText('#kpi-dd', `${nf(overview.max_drawdown_pct, 2)}%`);
-  setText('#kpi-sharpe', nf(overview.sharpe, 2));
+  renderLastKpi(overview);
 
   renderPnl(overview);
   renderEquity(equity, overview);
   renderPositions(overview.positions);
-  state.breakdown = breakdown;
-  renderBreakdown(breakdown[state.breakdownGroup || 'by_strategy']);
   renderEvents(events);
-  await loadSignals();
+
+  if (state.book === 'live') {
+    const breakdown = await api('/breakdown');
+    state.breakdown = breakdown;
+    renderBreakdown(breakdown[state.breakdownGroup || 'by_strategy']);
+    await loadSignals();
+  } else {
+    await loadLabBook(overview);
+  }
+}
+
+/* The sixth tile carries a different fact in each book. The live one has enough
+   equity snapshots for a Sharpe ratio; the experiment does not, and would only
+   be reporting the noise in a week of paper trading. What it has instead is the
+   information coefficient from its walk-forward, which is the number that says
+   whether the ranking works at all. */
+function renderLastKpi(overview) {
+  if (state.book === 'live') {
+    setText('#kpi-last-label', 'Sharpe');
+    setText('#kpi-sharpe', nf(overview.sharpe, 2));
+    setText('#kpi-last-sub', 'retorno por unidade de risco');
+    return;
+  }
+  const ic = overview.model?.information_coefficient;
+  setText('#kpi-last-label', 'Coef. de informação');
+  setText('#kpi-sharpe', ic?.mean == null ? '—' : nf(ic.mean, 3),
+    ic?.mean > 0 ? 'pos' : '');
+  setText('#kpi-last-sub', ic?.mean == null
+    ? 'sem modelo treinado'
+    : `t = ${nf(ic.t_stat, 1)} em ${ic.days} dias fora da amostra`);
+}
+
+/* -------------------------------------------------------------- the ML book */
+
+async function loadLabBook(overview) {
+  const [signals, status] = await Promise.all([
+    api('/lab/signals').catch(() => ({ rows: [] })),
+    api('/lab/status'),
+  ]);
+  state.lab = { overview, signals, status };
+  renderLabModel(overview, status);
+  renderLabFolds(overview.model);
+  renderLabRanking(signals, overview.model);
+
+  const toggle = $('#btn-lab-toggle');
+  toggle.textContent = status.running ? 'Parar' : 'Ligar';
+  toggle.className = `btn btn-small ${status.running ? 'btn-danger' : 'btn-primary'}`;
+}
+
+function renderLabModel(overview, status) {
+  const model = overview.model;
+  $('#lab-model-empty').hidden = Boolean(model);
+  $('#lab-model-cards').hidden = !model;
+  if (!model) { $('#lab-model-cards').innerHTML = ''; return; }
+
+  const ic = model.information_coefficient || {};
+  const cards = [
+    {
+      label: 'Vantagem mediana',
+      value: `${pct(model.median_edge)}/dia`,
+      tone: cls(model.median_edge),
+      note: `acima de segurar as 18 em partes iguais, em ${model.usable_folds} janelas`,
+    },
+    {
+      label: 'Janelas positivas',
+      value: `${model.positive_folds}/${model.usable_folds}`,
+      note: `${model.beat_baseline_folds} bateram a referência no total acumulado`,
+    },
+    {
+      label: 'Controle embaralhado',
+      value: model.null_edge == null ? '—' : `${pct(model.null_edge)}/dia`,
+      tone: model.null_edge < 0 ? 'pos' : 'neg',
+      note: 'mesmo teste com os resultados trocados entre as moedas do dia. '
+          + 'Perto de zero é o esperado; perto do número de cima significaria '
+          + 'que a vantagem nunca foi escolha de moeda.',
+    },
+    {
+      label: 'Giro médio',
+      value: `${nf(model.mean_turnover * 100, 1)}%/dia`,
+      note: `rebalanceia a cada ${model.rebalance_days} dias · cada troca completa `
+          + `custa ${nf(overview.cost_per_trade_pct, 2)}%`,
+    },
+    {
+      label: 'Capital em uso',
+      value: money(overview.capital_at_work, 0),
+      note: `de ${money(overview.start_capital, 0)} · cesta de ${model.top_k} a `
+          + `${money(overview.capital_at_work / model.top_k, 0)} cada · retorno `
+          + `sobre o que está em uso: ${pct(overview.return_on_capital_at_work_pct)}`,
+    },
+    {
+      label: 'Último ciclo',
+      value: status.last_day || '—',
+      note: status.last_rebalance
+        ? `último rebalanceamento em ${status.last_rebalance}`
+        : 'ainda não rebalanceou',
+    },
+  ];
+
+  if (!model.skill_is_coin_picking) {
+    cards.push({
+      label: 'Atenção', warn: true, value: 'controle não ficou atrás',
+      note: 'O teste com rótulos embaralhados foi tão bem quanto o modelo. '
+          + 'Isso significa que a vantagem medida não é escolha de moeda.',
+    });
+  }
+
+  $('#lab-model-cards').innerHTML = cards.map((card) => `
+    <div class="stat-card${card.warn ? ' warn' : ''}">
+      <span class="stat-label">${escape(card.label)}</span>
+      <strong class="stat-value ${card.tone || ''}">${escape(card.value)}</strong>
+      <span class="stat-note">${escape(card.note)}</span>
+    </div>`).join('');
+}
+
+function renderLabFolds(model) {
+  const body = $('#lab-cv-table tbody');
+  const folds = model?.folds || [];
+  body.innerHTML = folds.map((fold) => `
+    <tr>
+      <td>${escape(fold.test_from)} — ${escape(fold.test_to)}</td>
+      <td class="num">${fold.days}</td>
+      <td class="num">${nf(fold.turnover * 100, 1)}%</td>
+      <td class="num ${cls(fold.net_per_day)}">${pct(fold.net_per_day, 3)}</td>
+      <td class="num muted">${pct(fold.baseline_per_day, 3)}</td>
+      <td class="num ${cls(fold.edge)}">${pct(fold.edge, 3)}</td>
+      <td class="num ${Math.abs(fold.t_stat) > 2 ? cls(fold.t_stat) : 'muted'}">${nf(fold.t_stat, 2)}</td>
+      <td class="num ${cls(fold.total_pct)}">${pct(fold.total_pct, 1)}</td>
+      <td class="num muted">${pct(fold.baseline_total_pct, 1)}</td>
+    </tr>`).join('');
+  $('#lab-cv-note').textContent = model
+    ? `${model.total_trade_days} dias fora da amostra · t mediano ${nf(model.median_t_stat, 2)}`
+      + ` (acima de 2 seria significativo)`
+    : '—';
+}
+
+function renderLabRanking(signals, model) {
+  const rows = signals.rows || [];
+  $('#lab-rank-empty').hidden = rows.length > 0;
+  $('#lab-rank-table').hidden = rows.length === 0;
+  $('#lab-rank-note').textContent = rows.length
+    ? `${signals.day} · a cesta são os ${signals.top_k} primeiros`
+    : (signals.error || '—');
+  $('#lab-rank-table tbody').innerHTML = rows.map((row) => `
+    <tr${row.wanted ? ' class="row-on"' : ''}>
+      <td class="num">${row.rank}</td>
+      <td><strong>${escape(row.symbol)}</strong></td>
+      <td class="num">${nf(row.probability, 3)}</td>
+      <td class="num">${nf(row.close, row.close < 1 ? 4 : 2)}</td>
+      <td class="num ${cls(row.ret_7)}">${row.ret_7 == null ? '—' : pct(row.ret_7, 1)}</td>
+      <td class="num muted">${row.rsi_14 == null ? '—' : nf(row.rsi_14, 0)}</td>
+      <td class="num muted">${row.funding_bp == null ? '—' : nf(row.funding_bp, 2)}</td>
+      <td>${row.wanted ? '<span class="chip ok">na cesta</span>' : ''}</td>
+    </tr>`).join('');
 }
 
 /* The panel that answers "why has nothing happened". A book of seventeen
@@ -313,15 +496,22 @@ function triggerBox(trigger) {
    and one can still evaporate. Reading it top to bottom gives the whole
    arithmetic - what was put in, what closed trades did to it, what open trades
    are currently doing to it, and what is left. */
+const MODE_TEXT = {
+  live: 'CONTA REAL — dinheiro de verdade',
+  paper: 'papel — nenhuma ordem sai daqui',
+  testnet: 'conta de teste (testnet) — dinheiro fictício',
+};
+
 function renderPnl(overview) {
-  setText('#pnl-mode', overview.mode === 'live'
-    ? 'CONTA REAL — dinheiro de verdade'
-    : 'conta de teste (testnet) — dinheiro fictício');
+  setText('#pnl-mode', MODE_TEXT[overview.mode] || MODE_TEXT.testnet);
   $('#pnl-mode').className = overview.mode === 'live' ? 'neg' : 'muted';
 
   const rows = [
-    { label: 'Capital inicial', sub: 'ponto de partida',
-      value: money(overview.start_capital), tone: '' },
+    { label: 'Capital inicial', tone: '',
+      sub: overview.capital_at_work
+        ? `ponto de partida · ${money(overview.capital_at_work, 0)} podem estar aplicados de cada vez`
+        : 'ponto de partida',
+      value: money(overview.start_capital) },
     { label: 'Resultado realizado', tone: cls(overview.realised_pnl),
       sub: `${plural(overview.closed_trades, 'operação encerrada', 'operações encerradas')} · ${overview.wins}G / ${overview.losses}P`,
       value: signed(overview.realised_pnl) },
@@ -349,6 +539,11 @@ function renderPnl(overview) {
    the number: the estimate is what a real account would have cost, and telling
    the operator that is the whole point of showing it before going live. */
 function feeNote(overview) {
+  if (overview.mode === 'paper') {
+    return `Livro em papel: nada é enviado à corretora. Cada operação já desconta`
+      + ` ${nf(overview.cost_per_trade_pct, 2)}% de ida e volta — taxa mais`
+      + ` escorregamento, a mesma conta que o livro ao vivo usa.`;
+  }
   const measured = overview.fees_measured_orders || 0;
   const total = overview.fees_total_orders || 0;
   const turnover = money(overview.turnover);
@@ -399,7 +594,9 @@ function renderPositions(positions) {
   body.innerHTML = positions.map((p) => `
     <tr>
       <td class="sym">${p.symbol}</td>
-      <td><span class="chip">${p.strategy}</span> <span class="muted">${p.interval}</span></td>
+      <td>${p.strategy
+        ? `<span class="chip">${escape(p.strategy)}</span> <span class="muted">${escape(p.interval)}</span>`
+        : `<span class="chip">ranking</span> <span class="muted">p ${nf(p.entry_prob, 3)}</span>`}</td>
       <td class="num">${nf(p.entry_price, 4)}</td>
       <td class="num">${nf(p.mark_price, 4)}</td>
       <td class="num ${cls(p.unrealised_pnl)}">${signed(p.unrealised_pnl)} <span class="muted">${pct(p.unrealised_pct)}</span></td>
@@ -1419,9 +1616,11 @@ $('#btn-toggle-bot').addEventListener('click', async () => {
 });
 
 $('#btn-close-all').addEventListener('click', async () => {
-  if (!confirm('Encerrar todas as posições abertas a mercado?')) return;
+  const book = state.book === 'ml' ? 'do laboratório' : 'do livro validado';
+  if (!confirm(`Encerrar todas as posições abertas ${book} a mercado?`)) return;
   try {
-    const result = await api('/bot/close-all', { method: 'POST' });
+    const result = await api(
+      state.book === 'ml' ? '/lab/close-all' : '/bot/close-all', { method: 'POST' });
     toast(`${result.closed.length} posição(ões) encerrada(s)`, 'ok');
     refresh();
   } catch (error) { toast(error.message, 'error'); }
@@ -1442,6 +1641,49 @@ $('#btn-research').addEventListener('click', async () => {
 });
 
 $('#chk-validated').addEventListener('change', loadLab);
+
+$$('#book-toggle .seg-btn').forEach((button) => button.addEventListener('click', () => {
+  if (state.book === button.dataset.book) return;
+  state.book = button.dataset.book;
+  loadDashboard().catch((error) => toast(error.message, 'error'));
+}));
+
+$('#btn-lab-toggle').addEventListener('click', async () => {
+  const running = state.lab?.status?.running;
+  try {
+    const result = await api(running ? '/lab/stop' : '/lab/start', { method: 'POST' });
+    if (!running && !result.running) toast('Treine um modelo antes de ligar', 'error');
+    else toast(result.running ? 'Laboratório ligado' : 'Laboratório parado', 'ok');
+    refresh();
+  } catch (error) { toast(error.message, 'error'); }
+});
+
+$('#btn-lab-tick').addEventListener('click', async () => {
+  try {
+    const result = await api('/lab/tick?force=true', { method: 'POST' });
+    toast(result.skipped
+      ? `Ciclo pulado: ${result.skipped}`
+      : `Ciclo executado: ${(result.actions || []).length} ação(ões)`, 'ok');
+    refresh();
+  } catch (error) { toast(error.message, 'error'); }
+});
+
+/* Training takes about a minute, so the button starts it and then watches. */
+$('#btn-lab-train').addEventListener('click', async () => {
+  try {
+    await api('/lab/train', { method: 'POST' });
+    toast('Treinando — leva cerca de um minuto');
+    const watch = setInterval(async () => {
+      const status = await api('/lab/train/status');
+      if (status.running) return;
+      clearInterval(watch);
+      if (status.error) toast(status.error, 'error');
+      else if (status.result?.error) toast(status.result.error, 'error');
+      else if (status.result) toast(`Modelo ${status.result.model_id} treinado`, 'ok');
+      refresh();
+    }, 4000);
+  } catch (error) { toast(error.message, 'error'); }
+});
 
 $$('#breakdown-toggle .seg-btn').forEach((button) => button.addEventListener('click', () => {
   $$('#breakdown-toggle .seg-btn').forEach((other) => other.classList.toggle('is-on', other === button));
