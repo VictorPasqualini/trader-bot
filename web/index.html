@@ -238,11 +238,16 @@
           fecharam, emparelhadas pela operação original. Isso tira do resultado a
           sorte de <em>quais</em> moedas foram negociadas, que numa amostra pequena
           é quase toda a variação que existe. Valor positivo em
-          <strong>regra − alvo</strong> significa que esperar a regra rendeu mais.</p>
+          <strong>regra − alvo</strong> significa que esperar a regra rendeu mais.
+          A média sozinha não decide nada: <strong>espalhamento</strong> é o
+          desvio das diferenças e <strong>t</strong> é a média dividida pelo erro
+          dela. Abaixo de |t| = 2 a diferença está dentro do próprio ruído,
+          qualquer que seja o sinal.</p>
         <div class="table-wrap">
           <table id="exit-paired-table">
             <thead>
               <tr><th>Alvo</th><th class="num">Pares</th><th class="num">Regra − alvo</th>
+                  <th class="num">Espalhamento</th><th class="num">t</th>
                   <th class="num">Regra ganhou</th><th class="num">Alvo ganhou</th>
                   <th class="num">Empate</th></tr>
             </thead>
@@ -250,8 +255,25 @@
           </table>
         </div>
         <p class="empty" id="exit-paired-empty" hidden>
-          Nenhuma operação fechada nos dois lados ainda.
+          Nenhum par completo ainda. Um par só existe quando a operação fechou
+          <em>nas duas</em> saídas: enquanto o alvo já vendeu e a regra ainda
+          segura a posição, não há o que subtrair.
         </p>
+
+        <h3 class="sub">Cada par, um por um</h3>
+        <p class="hint">A média acima sai daqui. Mesma moeda, mesma entrada, duas
+          saídas — a diferença de cada linha é a saída e nada mais.</p>
+        <div class="table-wrap">
+          <table id="exit-pairs-table">
+            <thead>
+              <tr><th>Alvo</th><th>Moeda</th><th>Entrada</th>
+                  <th class="num">Saída no alvo</th><th class="num">Saída pela regra</th>
+                  <th class="num">Diferença</th><th>Motivo do alvo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="exit-pairs-empty" hidden>Sem pares fechados ainda.</p>
       </div>
 
       <div class="panel" data-book-only="live">

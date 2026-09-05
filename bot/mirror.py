@@ -24,6 +24,7 @@ write that would.
 
 from __future__ import annotations
 
+import math
 import threading
 import traceback
 from datetime import datetime, timezone
@@ -419,6 +420,14 @@ def equity_curves(limit: int = 500) -> dict[str, list[dict[str, Any]]]:
 
 # ----------------------------------------------------------------- the report
 
+def _sd(values: list[float]) -> float:
+    """Sample standard deviation, zero for anything shorter than two values."""
+    if len(values) < 2:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((value - mean) ** 2 for value in values) / (len(values) - 1))
+
+
 def _stats(arm: str, capital: float, marks: dict[str, float]) -> dict[str, Any]:
     closed = storage.query(
         "SELECT * FROM mirror_positions WHERE status='closed' AND arm=?", (arm,))
@@ -486,22 +495,56 @@ def overview() -> dict[str, Any]:
     for arm in arms(config):
         if arm == CONTROL:
             continue
-        both = [(float(row["return_pct"]),
-                 float(control_closed[int(row["source_id"])]["return_pct"]))
+        both = [(row, control_closed[int(row["source_id"])])
                 for row in storage.query(
-                    "SELECT * FROM mirror_positions WHERE status='closed' AND arm=?",
-                    (arm,))
+                    "SELECT * FROM mirror_positions WHERE status='closed' AND arm=?"
+                    " ORDER BY exit_time", (arm,))
                 if int(row["source_id"]) in control_closed]
+        # A pair needs both exits. When the target has sold and the rule is
+        # still holding, there is nothing to subtract yet - and saying "no
+        # pairs" without saying that reads like the study is not working.
+        waiting = len(storage.query(
+            "SELECT 1 FROM mirror_positions t JOIN mirror_positions r"
+            " ON r.source_id = t.source_id AND r.arm = ?"
+            " WHERE t.arm = ? AND t.status = 'closed' AND r.status = 'open'",
+            (CONTROL, arm)))
         if not both:
-            pairs[arm] = {"trades": 0}
+            pairs[arm] = {"trades": 0, "rows": [], "waiting": waiting}
             continue
-        deltas = [rule - target for target, rule in both]
+        deltas = [float(rule["return_pct"]) - float(side["return_pct"])
+                  for side, rule in both]
+        mean = sum(deltas) / len(deltas)
+        # The mean alone cannot say whether an exit is better, only which one
+        # happened to be ahead. Two arms that differ by 0.4 pp on eight trades
+        # that scatter over ten points have not been separated by anything, and
+        # a panel reporting the mean without the spread invites reading that as
+        # a result. The spread and t travel with it for that reason.
+        spread = _sd(deltas)
         pairs[arm] = {
-            "trades": len(both),
-            "rule_minus_target_pp": round(sum(deltas) / len(deltas), 3),
+            "trades": len(deltas),
+            "waiting": waiting,
+            "rule_minus_target_pp": round(mean, 3),
+            "sd_pp": round(spread, 3),
+            "t_stat": (round(mean / (spread / math.sqrt(len(deltas))), 2)
+                       if len(deltas) > 1 and spread > 0 else None),
             "rule_ahead": sum(1 for delta in deltas if delta > 0),
             "target_ahead": sum(1 for delta in deltas if delta < 0),
             "identical": sum(1 for delta in deltas if delta == 0),
+            # The pairs themselves, newest last. A mean built from trades the
+            # reader cannot see is a number to take on trust, and the whole
+            # point of pairing is that each row is checkable: same coin, same
+            # entry, two exits.
+            "rows": [{
+                "symbol": side["symbol"],
+                "entry_time": side["entry_time"],
+                "target_exit": side["exit_time"],
+                "rule_exit": rule["exit_time"],
+                "target_pct": round(float(side["return_pct"]), 3),
+                "rule_pct": round(float(rule["return_pct"]), 3),
+                "delta_pp": round(float(rule["return_pct"])
+                                  - float(side["return_pct"]), 3),
+                "target_reason": side["reason"],
+            } for side, rule in both[-40:]],
         }
 
     closed_total = sum(row["closed_trades"] for row in rows)

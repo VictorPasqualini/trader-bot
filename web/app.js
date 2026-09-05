@@ -358,19 +358,28 @@ function renderExitVerdict(overview) {
   $('#exit-verdict').innerHTML = rows.map(([arm, data]) => {
     const target = `alvo +${arm.slice(1)}%`;
     if (!data.trades) {
+      /* "Sem pares" on its own reads like a broken panel. A pair needs both
+         exits closed, and the usual reason there is none is the interesting
+         one: the target has already sold and the rule is still holding. */
       return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
           <span class="vcard-label">regra vs ${target}</span>
-          <strong class="vcard-value muted">sem pares</strong>
-          <span class="vcard-sub">nenhuma operação fechou nos dois</span>
+          <strong class="vcard-value muted">sem par ainda</strong>
+          <span class="vcard-sub">${data.waiting
+            ? `${data.waiting} posição${data.waiting > 1 ? 'ões' : ''} vendida${data.waiting > 1 ? 's' : ''} no alvo, regra ainda segurando`
+            : 'nenhuma operação fechou nas duas saídas'}</span>
         </div>`;
     }
     const pp = data.rule_minus_target_pp;
     const ahead = pp > 0 ? 'regra à frente' : pp < 0 ? `${target} à frente` : 'empate';
+    /* Below |t| = 2 the difference is inside its own scatter, so the card says
+       that instead of letting the sign be read as an answer. */
+    const solid = data.t_stat !== null && Math.abs(data.t_stat) >= 2;
     return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
         <span class="vcard-label">regra vs ${target}</span>
-        <strong class="vcard-value ${cls(pp)}">${signed(pp, 2)} pp</strong>
-        <span class="vcard-sub">${ahead} · ${data.trades} pares ·
-          ${data.rule_ahead}–${data.target_ahead}${data.identical ? `–${data.identical} iguais` : ''}</span>
+        <strong class="vcard-value ${solid ? cls(pp) : 'muted'}">${signed(pp, 2)} pp</strong>
+        <span class="vcard-sub">${solid ? ahead : 'dentro do ruído'} · ${data.trades} pares ·
+          ${data.rule_ahead}–${data.target_ahead}${data.identical ? `–${data.identical} iguais` : ''}${
+            data.t_stat === null ? '' : ` · t ${nf(data.t_stat, 2)}`}</span>
       </div>`;
   }).join('');
   setText('#exit-verdict-note',
@@ -471,12 +480,31 @@ function renderExitPaired(overview) {
       <td>+${arm.slice(1)}%</td>
       <td class="num">${data.trades}</td>
       <td class="num ${cls(data.rule_minus_target_pp)}">${signed(data.rule_minus_target_pp, 2)} pp</td>
+      <td class="num">${nf(data.sd_pp, 2)} pp</td>
+      <td class="num">${data.t_stat === null ? '—' : nf(data.t_stat, 2)}</td>
       <td class="num">${data.rule_ahead}</td>
       <td class="num">${data.target_ahead}</td>
       <td class="num">${data.identical}</td>
     </tr>`).join('');
   setText('#exit-paired-note',
     rows.length ? `${rows[0][1].trades} pares por alvo, no máximo` : 'sem pares ainda');
+
+  /* The pairs themselves. A mean from trades the reader cannot see is a number
+     to take on trust, and pairing is exactly the design where every row can be
+     checked by hand. */
+  const pairs = Object.entries(overview.paired)
+    .flatMap(([arm, data]) => (data.rows || []).map((row) => ({ arm, ...row })))
+    .sort((a, b) => String(b.rule_exit).localeCompare(String(a.rule_exit)));
+  $('#exit-pairs-empty').hidden = pairs.length > 0;
+  $('#exit-pairs-table tbody').innerHTML = pairs.map((row) => `<tr>
+      <td>+${row.arm.slice(1)}%</td>
+      <td>${row.symbol}</td>
+      <td class="muted">${dt(row.entry_time)}</td>
+      <td class="num ${cls(row.target_pct)}">${signed(row.target_pct, 2)}%</td>
+      <td class="num ${cls(row.rule_pct)}">${signed(row.rule_pct, 2)}%</td>
+      <td class="num ${cls(row.delta_pp)}">${signed(row.delta_pp, 2)} pp</td>
+      <td class="muted">${row.target_reason || '—'}</td>
+    </tr>`).join('');
 }
 
 function renderExitLedger(open, closed) {

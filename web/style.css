@@ -680,7 +680,9 @@ table.compact th, table.compact td { padding: 5px 8px; font-size: 12px; }
   margin-left: 6px; padding: 0 6px; border-radius: 8px;
   background: var(--neg-soft); color: var(--neg); font-size: .72rem;
 }
-h2.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+h2.sub, h3.sub { font-size: 12px; text-transform: uppercase; letter-spacing: .08em;
+                 color: var(--muted); }
+h3.sub { margin-top: 22px; }
 
 .headlines { list-style: none; margin: 0; padding: 0; }
 .headlines li {

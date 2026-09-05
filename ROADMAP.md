@@ -1527,3 +1527,6 @@ market-neutral comparison.
 | The study is denominated at the live book's own capital | The control arm is the live book restricted to mirrored trades; denominating it differently would make the two sets of percentages look comparable while measuring different denominators |
 | Changing the study's capital restates its curves in place | Equity is stored as capital plus P&L, so a new capital steps every line at that instant; unlike the live book's snapshots these rows are computed, not reported, so restating them destroys no evidence |
 | The verdict goes above the fold, the workings below it | The study's whole output is one number per target and it sat five panels down; a conclusion that has to be found is a conclusion that is read once |
+| Paired differences are recomputed, never stored | Each difference is a function of two trades already kept in full; a table of differences is a copy that can drift from the rows it came from |
+| Report the spread and t beside every paired mean | A mean with no scatter behind it lets a sign be read as an answer; below \|t\| = 2 the difference is inside its own noise whichever way it points |
+| Say why there is no pair yet, not just that there is none | The usual reason is the informative one - the target sold and the rule is still holding - and a bare "no pairs" reads as a broken panel |

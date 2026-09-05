@@ -841,9 +841,27 @@ Some details that decide whether the numbers mean anything:
 - **Inherited trades are tagged and reported separately.** The study adopts the
   positions that were already open when it started, so it begins today rather
   than in three weeks, but a trade it did not choose is not evidence about it.
+- **A pair needs both exits.** The paired figure counts a trade only once the
+  control and the target arm have *both* closed it. While the target has sold
+  and the rule is still holding there is nothing to subtract, so the panel says
+  how many positions are in that state rather than reporting "no pairs" and
+  looking broken.
+- **The mean travels with its spread and its t.** A 0.4 pp difference over eight
+  trades that scatter across ten points has separated nothing, and below |t| = 2
+  the card says *dentro do ruído* instead of colouring a winner. Every pair is
+  also listed, coin by coin, with both exits and the difference — pairing is the
+  design where each row can be checked by hand, and a mean built from trades the
+  reader cannot see is a number to take on trust.
 - **The panel says the sample is too small, in words**, until roughly thirty
   closed trades per arm. A ranking shown without that line invites reading a
   winner out of noise.
+
+Nothing has to be saved for the comparison to improve on its own. Every mirrored
+trade keeps its entry price, exit price, reason and result in `mirror_positions`
+alongside the live position it shadowed, so each paired difference is a function
+of rows that are already durable. A second table holding the differences would
+be a copy that can drift from the trades it was derived from; the statistics are
+recomputed from the ledger on every read instead.
 
 Isolation works the same way the lab's does: it reads `positions` and writes
 only `mirror_positions` and `mirror_equity`. There is no code path from it into
