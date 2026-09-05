@@ -452,7 +452,7 @@ async function loadSignals() {
   body.innerHTML = rows.map((row) => {
     if (!row.trigger) {
       return `<tr><td class="mono">${esc(row.symbol || '—')}</td>
-        <td class="muted" colspan="6">${esc(row.error || 'sem gatilho declarado')}</td></tr>`;
+        <td class="muted" colspan="7">${esc(row.error || 'sem gatilho declarado')}</td></tr>`;
     }
     const t = row.trigger;
     const distance = t.distance_pct == null ? num(t.gap) : `${signed(t.distance_pct, 1)}%`;
@@ -467,9 +467,24 @@ async function loadSignals() {
       <td class="num mono">${num(t.left_value)}</td>
       <td class="num mono">${num(t.right_value)}</td>
       <td class="num ${t.met ? 'pos' : 'muted'}">${distance}</td>
+      <td class="num mono">${triggerPrice(row)}</td>
       <td>${t.met ? '<span class="chip ok">atendido</span>' : ''}</td>
     </tr>`;
   }).join('');
+}
+
+/* The same trigger in the unit that is actually on the screen a trader is
+   watching. "ROC 40 abaixo de 0" is exact and unwatchable; "vira em 1.4960"
+   is the same fact as a line on the chart.
+
+   It is a level for the next close, not a standing order: the indicator's
+   reference bars roll forward every candle, so the level moves on its own even
+   if the price does not. */
+function triggerPrice(row) {
+  const level = row.trigger_price;
+  if (level == null) return '<span class="muted">—</span>';
+  const move = row.price ? (level / row.price - 1) * 100 : null;
+  return `${num(level)} <span class="muted">${move == null ? '' : signed(move, 1) + '%'}</span>`;
 }
 
 /* "RSI 14 abaixo de 25" - the comparison in words, so the two numbers beside
