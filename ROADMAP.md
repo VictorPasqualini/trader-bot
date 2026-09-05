@@ -1530,3 +1530,5 @@ market-neutral comparison.
 | Paired differences are recomputed, never stored | Each difference is a function of two trades already kept in full; a table of differences is a copy that can drift from the rows it came from |
 | Report the spread and t beside every paired mean | A mean with no scatter behind it lets a sign be read as an answer; below \|t\| = 2 the difference is inside its own noise whichever way it points |
 | Say why there is no pair yet, not just that there is none | The usual reason is the informative one - the target sold and the rule is still holding - and a bare "no pairs" reads as a broken panel |
+| The study is one panel: four rows, one chart, one sentence | Five open panels answering a single question outweighed the book the tab is about, and a dashboard that has to be scanned is a dashboard that stops being read |
+| The workings fold behind a summary rather than being deleted | Every pair has to stay checkable by hand - that is the whole point of pairing - but checking is a thing done occasionally and scrolling is a thing done daily |

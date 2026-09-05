@@ -115,15 +115,6 @@
         </div>
       </div>
 
-      <div class="verdict" data-book-only="live">
-        <div class="verdict-head">
-          <h2>Sair pela regra ou sair no lucro</h2>
-          <button class="btn btn-small btn-ghost" id="btn-exit-jump">Ver o estudo</button>
-        </div>
-        <div class="verdict-cards" id="exit-verdict"></div>
-        <p class="hint" id="exit-verdict-note">—</p>
-      </div>
-
       <div class="panel" data-book-only="live ml">
         <div class="panel-head">
           <h2>Lucro e perda</h2>
@@ -144,6 +135,109 @@
         <p class="empty" id="equity-empty" hidden>
           Sem histórico ainda. Ligue o robô ou rode um ciclo manual em Ajustes.
         </p>
+      </div>
+
+      <!-- ------------------------------------------------------ exit study -->
+
+      <div class="panel panel-study" data-book-only="live" id="exit-study">
+        <div class="panel-head">
+          <h2>Sair pela regra ou sair no lucro</h2>
+          <div class="panel-actions">
+            <button class="btn btn-small btn-ghost" id="btn-exit-tick">Rodar ciclo</button>
+            <button class="btn btn-small btn-primary" id="btn-exit-toggle">Ligar</button>
+          </div>
+        </div>
+        <p class="hint">As mesmas operações do livro validado, saindo de quatro
+          jeitos. <strong>Regra decide</strong> sai quando o livro sai; as outras
+          vendem no lucro do alvo e, se o alvo não vier, esperam a regra. Só a
+          saída muda, então a diferença entre as linhas é a saída.</p>
+
+        <div class="table-wrap">
+          <table id="exit-arms-table">
+            <thead>
+              <tr><th>Saída</th><th class="num">Patrimônio</th><th class="num">Retorno</th>
+                  <th class="num">vs. regra</th><th class="num">Operações</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="exit-equity-chart" height="200"></canvas>
+          <div class="chart-tip" id="exit-equity-tip" hidden></div>
+        </div>
+        <div class="legend" id="exit-legend"></div>
+        <p class="empty" id="exit-equity-empty" hidden>
+          Sem histórico ainda. O estudo grava um ponto por ciclo, a cada cinco
+          minutos, depois de ligado.
+        </p>
+
+        <p class="hint" id="exit-note">—</p>
+
+        <details class="fold">
+          <summary>Os números por trás</summary>
+
+          <p class="hint" id="exit-scope">—</p>
+          <p class="hint muted" id="exit-equity-range">—</p>
+
+          <h3 class="sub">Comparação emparelhada</h3>
+          <p class="hint">Só as operações que as duas saídas fecharam,
+            emparelhadas pela operação original. Isso tira do resultado a sorte
+            de <em>quais</em> moedas foram negociadas, que numa amostra pequena é
+            quase toda a variação que existe. Valor positivo em
+            <strong>regra − alvo</strong> significa que esperar a regra rendeu
+            mais. A média sozinha não decide nada: <strong>espalhamento</strong>
+            é o desvio das diferenças e <strong>t</strong> é a média dividida
+            pelo erro dela. Abaixo de |t| = 2 a diferença está dentro do próprio
+            ruído, qualquer que seja o sinal.</p>
+          <div class="table-wrap">
+            <table id="exit-paired-table">
+              <thead>
+                <tr><th>Alvo</th><th class="num">Pares</th><th class="num">Regra − alvo</th>
+                    <th class="num">Espalhamento</th><th class="num">t</th>
+                    <th class="num">Regra ganhou</th><th class="num">Alvo ganhou</th>
+                    <th class="num">Empate</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-paired-empty" hidden>
+            Nenhum par completo ainda. Um par só existe quando a operação fechou
+            <em>nas duas</em> saídas: enquanto o alvo já vendeu e a regra ainda
+            segura a posição, não há o que subtrair.
+          </p>
+          <p class="hint muted" id="exit-paired-note">—</p>
+
+          <h3 class="sub">Cada par, um por um</h3>
+          <div class="table-wrap">
+            <table id="exit-pairs-table">
+              <thead>
+                <tr><th>Alvo</th><th>Moeda</th><th>Entrada</th>
+                    <th class="num">Saída no alvo</th><th class="num">Saída pela regra</th>
+                    <th class="num">Diferença</th><th>Motivo do alvo</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-pairs-empty" hidden>Sem pares fechados ainda.</p>
+
+          <h3 class="sub">Posições e operações do estudo</h3>
+          <p class="hint muted" id="exit-ledger-note">—</p>
+          <div class="table-wrap">
+            <table id="exit-ledger-table">
+              <thead>
+                <tr><th>Saída</th><th>Par</th><th>Estado</th><th class="num">Entrada</th>
+                    <th class="num">Alvo</th><th class="num">Saída</th>
+                    <th class="num">Resultado</th><th>Motivo</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-ledger-empty" hidden>Nada espelhado ainda.</p>
+
+          <h3 class="sub">Atividade do estudo</h3>
+          <ul class="events" id="exit-events-list"></ul>
+        </details>
       </div>
 
       <div class="split" data-book-only="live ml">
@@ -176,130 +270,6 @@
           <div id="breakdown-list" class="bar-list"></div>
           <p class="empty" id="breakdown-empty">Sem operações encerradas ainda.</p>
         </div>
-      </div>
-
-      <!-- ------------------------------------------------------ exit study -->
-
-      <div class="panel panel-study" data-book-only="live" id="exit-study">
-        <div class="panel-head">
-          <h2>Cada saída, lado a lado</h2>
-          <div class="panel-actions">
-            <button class="btn btn-small btn-ghost" id="btn-exit-tick">Rodar ciclo</button>
-            <button class="btn btn-small btn-primary" id="btn-exit-toggle">Ligar</button>
-          </div>
-        </div>
-        <p class="hint">Cada linha entra <em>na mesma operação</em> do livro validado:
-          mesma moeda, mesmo preço de entrada, mesmo momento, mesmo tamanho. A única
-          coisa que muda é a saída. <strong>Regra decide</strong> sai quando o livro
-          sai; as outras vendem assim que a posição mostra o lucro do alvo, e se o
-          alvo não vier esperam a regra. Como só a saída difere, qualquer diferença
-          entre as linhas é a saída e não pode ser outra coisa.</p>
-        <p class="hint" id="exit-scope">—</p>
-        <p class="hint" id="exit-note">—</p>
-        <div class="kpi-grid kpi-grid-tight" id="exit-kpis"></div>
-        <div class="table-wrap">
-          <table id="exit-arms-table">
-            <thead>
-              <tr><th>Saída</th><th class="num">Resultado</th><th class="num">Retorno</th>
-                  <th class="num">vs. regra</th><th class="num">Operações</th>
-                  <th class="num">Acerto</th><th class="num">Média</th>
-                  <th class="num">No alvo</th><th class="num">Abertas</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="panel" data-book-only="live">
-        <div class="panel-head">
-          <h2>Patrimônio de cada saída</h2>
-          <span class="muted" id="exit-equity-range">—</span>
-        </div>
-        <p class="hint">As quatro linhas partem do mesmo capital e das mesmas
-          entradas, então onde elas se separam é uma saída que diferiu — e nada
-          mais. A tracejada é o capital de partida.</p>
-        <div class="chart-wrap">
-          <canvas id="exit-equity-chart" height="240"></canvas>
-          <div class="chart-tip" id="exit-equity-tip" hidden></div>
-        </div>
-        <div class="legend" id="exit-legend"></div>
-        <p class="empty" id="exit-equity-empty" hidden>
-          Sem histórico ainda. O estudo grava um ponto por ciclo, a cada cinco
-          minutos, depois de ligado.
-        </p>
-      </div>
-
-      <div class="panel" data-book-only="live">
-        <div class="panel-head">
-          <h2>Operação a operação</h2>
-          <span class="muted" id="exit-paired-note">—</span>
-        </div>
-        <p class="hint">A comparação justa: só as operações que as duas saídas
-          fecharam, emparelhadas pela operação original. Isso tira do resultado a
-          sorte de <em>quais</em> moedas foram negociadas, que numa amostra pequena
-          é quase toda a variação que existe. Valor positivo em
-          <strong>regra − alvo</strong> significa que esperar a regra rendeu mais.
-          A média sozinha não decide nada: <strong>espalhamento</strong> é o
-          desvio das diferenças e <strong>t</strong> é a média dividida pelo erro
-          dela. Abaixo de |t| = 2 a diferença está dentro do próprio ruído,
-          qualquer que seja o sinal.</p>
-        <div class="table-wrap">
-          <table id="exit-paired-table">
-            <thead>
-              <tr><th>Alvo</th><th class="num">Pares</th><th class="num">Regra − alvo</th>
-                  <th class="num">Espalhamento</th><th class="num">t</th>
-                  <th class="num">Regra ganhou</th><th class="num">Alvo ganhou</th>
-                  <th class="num">Empate</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="empty" id="exit-paired-empty" hidden>
-          Nenhum par completo ainda. Um par só existe quando a operação fechou
-          <em>nas duas</em> saídas: enquanto o alvo já vendeu e a regra ainda
-          segura a posição, não há o que subtrair.
-        </p>
-
-        <h3 class="sub">Cada par, um por um</h3>
-        <p class="hint">A média acima sai daqui. Mesma moeda, mesma entrada, duas
-          saídas — a diferença de cada linha é a saída e nada mais.</p>
-        <div class="table-wrap">
-          <table id="exit-pairs-table">
-            <thead>
-              <tr><th>Alvo</th><th>Moeda</th><th>Entrada</th>
-                  <th class="num">Saída no alvo</th><th class="num">Saída pela regra</th>
-                  <th class="num">Diferença</th><th>Motivo do alvo</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="empty" id="exit-pairs-empty" hidden>Sem pares fechados ainda.</p>
-      </div>
-
-      <div class="panel" data-book-only="live">
-        <div class="panel-head">
-          <h2>Posições e operações do estudo</h2>
-          <span class="muted" id="exit-ledger-note">—</span>
-        </div>
-        <div class="table-wrap">
-          <table id="exit-ledger-table">
-            <thead>
-              <tr><th>Saída</th><th>Par</th><th>Estado</th><th class="num">Entrada</th>
-                  <th class="num">Alvo</th><th class="num">Saída</th>
-                  <th class="num">Resultado</th><th>Motivo</th></tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <p class="empty" id="exit-ledger-empty" hidden>Nada espelhado ainda.</p>
-      </div>
-
-      <div class="panel" data-book-only="live">
-        <div class="panel-head"><h2>Atividade do estudo</h2></div>
-        <p class="hint">Só o que as quatro saídas fizeram. As entradas e saídas do
-          livro validado ficam na lista abaixo — misturar as duas torna as duas
-          ilegíveis.</p>
-        <ul class="events" id="exit-events-list"></ul>
       </div>
 
       <div class="panel" data-book-only="live">

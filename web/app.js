@@ -320,9 +320,6 @@ async function loadExitBook(liveOverview) {
   ]);
   state.exit = overview;
 
-  $('#btn-exit-jump').onclick = () =>
-    $('#exit-study').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
   $('#btn-exit-toggle').textContent = overview.running ? 'Parar' : 'Ligar';
   $('#btn-exit-toggle').classList.toggle('btn-danger', !!overview.running);
   $('#btn-exit-toggle').classList.toggle('btn-primary', !overview.running);
@@ -337,8 +334,6 @@ async function loadExitBook(liveOverview) {
     + `${overview.last_tick ? ` · último ciclo ${dt(overview.last_tick)}` : ''}.`,
     overview.conclusive ? '' : 'muted');
 
-  renderExitVerdict(overview);
-  renderExitKpis(overview);
   renderExitArms(overview, liveOverview);
   renderExitEquity(curves, overview);
   renderExitPaired(overview);
@@ -346,61 +341,31 @@ async function loadExitBook(liveOverview) {
   renderEvents(events, '#exit-events-list');
 }
 
-/* The answer, in words, above the fold. The paired difference is the whole
-   result of the study - each pair is the same trade with two exits, so the mean
-   difference is the effect and nothing else - and it was previously readable
-   only from a table near the bottom of the page.
+/* One sentence, under the chart. The paired difference is the whole result of
+   the study - each pair is the same trade with two exits, so the mean
+   difference is the effect and nothing else - and it used to take four cards
+   and a nine-column table to say it.
 
-   The sample size travels with it. A verdict card with no count is an invitation
-   to read a winner out of four arms and a handful of trades. */
-function renderExitVerdict(overview) {
-  const rows = Object.entries(overview.paired);
-  $('#exit-verdict').innerHTML = rows.map(([arm, data]) => {
-    const target = `alvo +${arm.slice(1)}%`;
+   The sample size travels with it. A verdict with no count is an invitation to
+   read a winner out of four arms and a handful of trades, and below |t| = 2 the
+   difference is inside its own scatter whichever way it points. */
+function exitVerdict(overview) {
+  const parts = Object.entries(overview.paired).map(([arm, data]) => {
+    const target = `+${arm.slice(1)}%`;
     if (!data.trades) {
-      /* "Sem pares" on its own reads like a broken panel. A pair needs both
-         exits closed, and the usual reason there is none is the interesting
-         one: the target has already sold and the rule is still holding. */
-      return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
-          <span class="vcard-label">regra vs ${target}</span>
-          <strong class="vcard-value muted">sem par ainda</strong>
-          <span class="vcard-sub">${data.waiting
-            ? `${data.waiting} posição${data.waiting > 1 ? 'ões' : ''} vendida${data.waiting > 1 ? 's' : ''} no alvo, regra ainda segurando`
-            : 'nenhuma operação fechou nas duas saídas'}</span>
-        </div>`;
+      return data.waiting
+        ? `${target}: ${data.waiting} vendida${data.waiting > 1 ? 's' : ''} no alvo, regra ainda segurando`
+        : `${target}: sem par ainda`;
     }
     const pp = data.rule_minus_target_pp;
-    const ahead = pp > 0 ? 'regra à frente' : pp < 0 ? `${target} à frente` : 'empate';
-    /* Below |t| = 2 the difference is inside its own scatter, so the card says
-       that instead of letting the sign be read as an answer. */
-    const solid = data.t_stat !== null && Math.abs(data.t_stat) >= 2;
-    return `<div class="vcard" style="--arm:${EXIT_COLORS[arm] || '#8b94b2'}">
-        <span class="vcard-label">regra vs ${target}</span>
-        <strong class="vcard-value ${solid ? cls(pp) : 'muted'}">${signed(pp, 2)} pp</strong>
-        <span class="vcard-sub">${solid ? ahead : 'dentro do ruído'} · ${data.trades} pares ·
-          ${data.rule_ahead}–${data.target_ahead}${data.identical ? `–${data.identical} iguais` : ''}${
-            data.t_stat === null ? '' : ` · t ${nf(data.t_stat, 2)}`}</span>
-      </div>`;
-  }).join('');
-  setText('#exit-verdict-note',
-    `Média por operação, mesma entrada dos dois lados. `
-    + `${overview.note} ${overview.closed_trades} de ~${overview.trades_needed} fechadas.`,
-    overview.conclusive ? '' : 'muted');
-}
-
-/* The study has its own money and shows it, one tile per arm. Folding four arms
-   into a single headline figure would hide the only thing being measured, and
-   leaving them out entirely made the tab look like it had one book in it. */
-function renderExitKpis(overview) {
-  $('#exit-kpis').innerHTML = overview.arms.map((arm) => `
-    <div class="kpi kpi-arm" style="--arm:${EXIT_COLORS[arm.arm] || '#8b94b2'}">
-      <span class="kpi-label">${arm.label}</span>
-      <strong class="kpi-value">${money(arm.total_value)}</strong>
-      <span class="kpi-delta ${cls(arm.total_pnl)}">${signed(arm.total_pnl)} · ${pct(arm.return_pct)}</span>
-      <span class="kpi-sub">${arm.closed_trades} fechada${arm.closed_trades === 1 ? '' : 's'}
-        · ${arm.open_positions} aberta${arm.open_positions === 1 ? '' : 's'}
-        · ${money(arm.invested)} aplicado${arm.arm === 'rule' ? '' : ` · ${arm.hit_target} no alvo`}</span>
-    </div>`).join('');
+    if (data.t_stat === null || Math.abs(data.t_stat) < 2) {
+      return `${target}: ${signed(pp, 2)} pp em ${data.trades} pares, dentro do ruído`;
+    }
+    return `${target}: ${pp > 0 ? 'regra' : 'alvo'} à frente por `
+      + `${nf(Math.abs(pp), 2)} pp em ${data.trades} pares`;
+  });
+  return `Regra menos alvo, por operação — ${parts.join(' · ')}. `
+    + `${overview.note} ${overview.closed_trades} de ~${overview.trades_needed} fechadas.`;
 }
 
 function renderExitEquity(curves, overview) {
@@ -455,22 +420,18 @@ function renderExitArms(overview, liveOverview) {
       + `$${nf(overview.quote_per_trade, 0)} por posição sobre `
       + `${money(overview.capital, 0)}.`
     : '—');
-  $('#exit-arms-table tbody').innerHTML = overview.arms.map((arm) => {
-    const inherited = arm.adopted_trades
-      ? ` <span class="muted">(${arm.adopted_trades} herdada${arm.adopted_trades > 1 ? 's' : ''})</span>`
-      : '';
-    return `<tr${arm.arm === 'rule' ? ' class="row-strong"' : ''}>
-      <td>${arm.label}</td>
-      <td class="num ${cls(arm.total_pnl)}">${money(arm.total_pnl)}</td>
+  $('#exit-arms-table tbody').innerHTML = overview.arms.map((arm) => `
+    <tr${arm.arm === 'rule' ? ' class="row-strong"' : ''}>
+      <td><i class="legend-swatch"
+             style="border-top-color:${EXIT_COLORS[arm.arm] || '#8b94b2'}"></i>${arm.label}</td>
+      <td class="num">${money(arm.total_value)}</td>
       <td class="num ${cls(arm.return_pct)}">${pct(arm.return_pct)}</td>
       <td class="num ${cls(arm.vs_rule_pct)}">${arm.arm === 'rule' ? '—' : pct(arm.vs_rule_pct)}</td>
-      <td class="num">${arm.closed_trades}${inherited}</td>
-      <td class="num">${arm.closed_trades ? `${nf(arm.win_rate_pct, 0)}%` : '—'}</td>
-      <td class="num ${cls(arm.avg_trade_pct)}">${arm.closed_trades ? pct(arm.avg_trade_pct) : '—'}</td>
-      <td class="num">${arm.arm === 'rule' ? '—' : arm.hit_target}</td>
-      <td class="num">${arm.open_positions}</td>
-    </tr>`;
-  }).join('');
+      <td class="num">${arm.closed_trades} fechada${arm.closed_trades === 1 ? '' : 's'}
+        <span class="muted">· ${arm.open_positions} aberta${arm.open_positions === 1 ? '' : 's'}</span></td>
+    </tr>`).join('');
+
+  setText('#exit-note', exitVerdict(overview), overview.conclusive ? '' : 'muted');
 }
 
 function renderExitPaired(overview) {

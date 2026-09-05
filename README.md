@@ -902,18 +902,19 @@ longer span, so those two sets of numbers are the same money over different
 periods; the like-for-like read is inside the study's own table.
 
 `POST /api/mirror/start` runs it on a five-minute poll, and the study sits in the
-*Livro validado* tab, under the book it is asking about — with its own equity
-tiles, one per arm, and its own chart. Four arms cannot be folded into a single
-headline figure without hiding the only thing being measured, so there are four
-tiles; and because all four start from the same capital and the same entries,
-the chart says the whole thing at a glance: where the lines separate is an exit
-that differed, and nothing else.
+*Livro validado* tab, under the book it is asking about, as **one panel**: four
+rows — one per exit, with its equity, its return and its distance from the rule
+— then the four curves on one chart, then the verdict in a sentence. Because all
+four start from the same capital and the same entries, the chart says the whole
+thing at a glance: where the lines separate is an exit that differed, and nothing
+else.
 
-The *verdict* is not left down there with the detail. A strip under the headline
-tiles states each paired difference in words — which side is ahead, by how many
-percentage points per trade, over how many pairs — with the sample size attached
-to it, and a button that jumps to the study for anyone who wants the workings. A
-result that has to be scrolled for is a result that gets read once.
+Everything else folds. The paired table, the pair-by-pair list, the study's
+ledger and its activity feed live behind a *Os números por trás* summary,
+because the answer is what belongs on a dashboard and the arithmetic is what
+belongs one click away. An earlier version had all of it open at once — four
+tiles, a nine-column table, two comparison tables, a ledger and a second
+activity feed — and it buried the book the tab is actually about.
 
 ## Interpreting results honestly
 
