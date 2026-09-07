@@ -1,0 +1,40 @@
+# systemd unit for an always-on host.
+#
+# The dashboard binds to localhost on purpose. It has no login screen, and every
+# control that starts the bot, changes the book or places an order is reachable
+# from it, so publishing port 8777 to the internet would hand those controls to
+# anyone who scans the address. Reach it over an SSH tunnel instead:
+#
+#     ssh -L 8777:127.0.0.1:8777 ubuntu@<host>
+#
+# and then open http://127.0.0.1:8777 on your own machine.
+
+[Unit]
+Description=Pouch trading bot and dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pouch
+WorkingDirectory=/opt/pouch
+# No EnvironmentFile: bot/config.py loads /opt/pouch/.env itself through
+# python-dotenv, which parses inline comments and quoting the way the file
+# is actually written. Pointing systemd at the same file as well would give
+# two parsers one input and eventually two answers.
+ExecStart=/opt/pouch/.venv/bin/python run.py serve --host 127.0.0.1 --port 8777 --no-browser
+
+# The bot resumes itself on startup when the saved config has it enabled, so a
+# restart costs one poll interval and nothing else. Restarting always, rather
+# than on-failure, also covers a clean exit caused by something outside the
+# process - an OOM kill, a hung upstream, a manual stop that was not meant to
+# be permanent.
+Restart=always
+RestartSec=10
+
+# Journald keeps the output; the bot's own event log lives in the database.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

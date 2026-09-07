@@ -1,2 +1,982 @@
-# trader-bot
-A personal project to make trades actually in Binance and help me to make some money
+# Pouch
+
+A multi-strategy crypto trading bot with a local web dashboard.
+
+The name is the hamster's cheek pouch, and the mascot is the honest description
+of the engine: it sits still for weeks, stuffs a position into its cheek when
+the price is wrong, and empties the pouch when the price is right. Seventeen
+allocations on 4h and 1d candles do almost nothing almost all of the time, and
+the interface is built around making that stillness legible rather than
+alarming.
+
+## Objective
+
+Most trading bots ship a strategy and assume it works. This one is built around
+the opposite premise: **almost nothing works, and the hard part is telling the
+difference.** The project exists to find out — empirically, on real market
+history — which strategies hold up on data they were never fitted to, and to
+trade only those, against a real exchange API with fake money.
+
+The dashboard answers "is this actually making money, and why?" — equity,
+realised and unrealised P&L, win rate, profit factor, drawdown, Sharpe, and a
+per-strategy breakdown, updated live.
+
+## What it does
+
+1. **Downloads** years of real candle history from Binance's public API.
+2. **Sweeps** 13 strategies across hundreds of parameter combinations each, on
+   every symbol and timeframe you select.
+3. **Validates** every survivor on a held-out slice of history the optimiser
+   never touched, and rejects anything that does not stay profitable there.
+4. **Ranks** what is left by risk-adjusted return, penalising small samples,
+   deep drawdowns, and edges that came from one lucky stretch.
+5. **Walks the survivors forward** through a decade of rolling quarters, on the
+   exact parameters they would trade with, and reports how many of those
+   quarters they actually won.
+6. **Trades** the strategies you approve on the **Binance Spot Testnet** — real
+   API, real order book, fake money — one position per symbol.
+7. **Reports** everything in a local dashboard with no build step: every entry
+   and exit, per coin, with the indicator values that triggered it, the strategy
+   that decided it, the result in cash and percent, and how long it took.
+8. **Runs a second, separate book** on the same screen: a machine-learning
+   experiment that ranks the universe daily instead of following rules. It has
+   its own tables, its own paper capital and its own controls, and it cannot
+   touch the validated book's ledger.
+9. **Runs the exit argument forward** in a third book: the same trades as the
+   live one, entered identically, exited four different ways. One arm waits for
+   the rule, the others sell at a fixed profit. It settles by measurement a
+   question that is otherwise settled by opinion.
+
+![stack](https://img.shields.io/badge/python-3.11%2B-blue) ![license](https://img.shields.io/badge/license-MIT-green)
+
+## Quick start
+
+```bash
+python -m venv .venv
+.venv/Scripts/activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
+
+pip install -r requirements.txt
+cp .env.example .env            # then paste your testnet keys
+python run.py
+```
+
+The dashboard opens at <http://127.0.0.1:8777>.
+
+Get free testnet keys at <https://testnet.binance.vision/> (log in with GitHub,
+click *Generate HMAC_SHA256 Key*). The account is pre-funded with fake USDT.
+
+Verify the connection at any time:
+
+```bash
+python run.py check
+```
+
+## How it works
+
+```
+market history (Binance public API, up to 5000 candles)
+        |
+        v
+  research sweep  ->  optimise parameters on the first 65% of history
+        |               score on the held-out 35% (out-of-sample)
+        v
+   leaderboard    ->  only candidates that stay profitable out-of-sample,
+        |               beat buy-and-hold, and earn money across sub-periods
+        |               are marked "aprovada"
+        v
+  walk-forward    ->  the same parameters re-run over eight rolling quarters,
+        |               judged on how many they won, not on the total
+        v
+  live engine     ->  runs the chosen strategies on the testnet,
+                      one position per symbol, acting on closed candles only
+```
+
+Research reads history from Binance's **public production** API, because the
+testnet's own history is shallow and partly synthetic. Orders, balances and
+account state come from the **testnet**. The two are deliberately separate.
+
+### Why the split matters
+
+Any strategy can be tuned until it looks brilliant on the data used to tune it.
+That number is worthless. The research engine therefore never ranks on the data
+it optimised against: parameters are fitted on the older slice, and the ranking
+you see comes from the newer slice the optimiser never touched.
+
+A candidate is marked **aprovada** only when the held-out slice:
+
+* is profitable,
+* has a Sharpe above 0.3,
+* contains at least 3 trades,
+* beats buy-and-hold over the same window, and
+* turns a profit in at least half of eight equal sub-periods.
+
+That last gate — consistency — is what separates a repeatable edge from one
+lucky rally, and it also scales the ranking score.
+
+Costs are charged on both sides of every simulated trade — 0.1% fee plus a
+0.05% slippage assumption — and paper trading charges the same, so simulated
+and live numbers stay comparable.
+
+### Execution model
+
+The backtester is deliberately pessimistic:
+
+* the position decided at bar `t`'s close is filled at bar `t + 1`'s open, so
+  no signal can ever see the price it trades at;
+* stops and targets are checked against each bar's own high and low, and when a
+  bar touches both, the stop is assumed to hit first;
+* after a protective exit the strategy stands aside until its own signal drops
+  and turns long again, so a stop can never re-enter the position it just closed;
+* the live engine drops the forming candle and acts only on closed ones, which
+  is what makes live behaviour match the backtest;
+* the live engine also enters only on a signal *transition*. Strategies hold a
+  position between their entry and exit pulses, so an allocation added to the
+  book while its signal is already long would buy a move that started days
+  earlier — a trade no backtest ever makes. Measured over 900 candles of the
+  seventeen live allocations, joining a run one candle late costs about 0.8 points
+  of mean trade return, and five candles late costs 2.6 points and six points of
+  win rate. So a new allocation waits for its signal to drop and turn long
+  again, at the cost of the run already in progress.
+
+Fees are read from the exchange rather than assumed. Every fill Binance returns
+carries a `commission` and the asset it was charged in, and `fill_summary()`
+nets it out of the fill before anything else sees it: a fee charged in the base
+asset reduces the quantity actually received, one charged in the quote asset
+raises what a buy cost or lowers what a sell returned. The measured amount is
+stored on the order, and reports fall back to the configured rate only for
+orders that predate the change.
+
+This is worth doing before it can cost anything, because the Spot Testnet
+charges zero commission. The whole nine-month forward test will therefore report
+no fees at all, and the error — roughly 0.2% of overstated profit per round trip
+— would appear for the first time on a real account, on the first day it holds
+real money. Netting it now also makes testnet and live agree with paper mode,
+which has always charged the fee into the fill price.
+
+Entries are also checked against available cash before they are sent. The
+exchange would reject an unaffordable order anyway, but it does so as a generic
+error, and a book of seventeen allocations that all turn long in the same hour
+would produce a run of them with nothing in the log to say the account had
+simply run out of quote asset. `_can_fund()` reads the free balance (or, in
+paper mode, the unspent share of the configured capital), adds the expected fee
+and slippage to the order, and if it does not fit, logs a refusal naming both
+numbers instead of letting the exchange answer for it.
+
+### Walk-forward validation
+
+One train/test split tests one regime transition, and a strategy can clear it
+because the held-out slice happened to suit it. Walk-forward asks the question
+repeatedly: fit on 365 days, trade the 90 that follow, step forward, repeat.
+What comes out is a distribution rather than a number — how many of those
+quarters were profitable, how bad the worst one was, and whether the fitted
+parameters kept changing.
+
+Two modes, answering different questions:
+
+* **fixed** (the default for live allocations) carries the deployed parameters
+  through every window. "Does what is running right now survive these periods?"
+* **refit** re-optimises on each window. "Could this strategy have worked here?"
+
+Measured on this project's six live allocations, fixed beat refit on five of
+six, and by wide margins on three — 365 daily bars cannot support a 500-point
+parameter grid, so refitting that often is curve fitting with extra steps.
+
+Indicators are computed on the full frame and only the *trading* is restricted
+to the test window, so the fitting period doubles as warm-up. Without that, a
+100-bar volatility filter on a 90-bar window is undefined for the entire window
+and the strategy silently makes no trades at all.
+
+```bash
+python run.py walkforward XRPUSDT 1d bollinger_breakout
+python run.py walkforward XRPUSDT 1d bollinger_breakout --params '{"period": 20, "mult": 2.0}'
+```
+
+The dashboard's **Validação** tab runs this across every live allocation and
+shows the per-quarter table behind each verdict.
+
+Each window is also labelled with the market it happened in, so the distribution
+can be read by condition rather than only in aggregate. The label comes from the
+signal-to-noise ratio of the window's own price — buy-and-hold return divided by
+realised volatility — thresholded at ±0.75 into bull, bear and chop. It is
+computed from price alone and never from the strategy's result, which matters:
+label a window by whether the strategy won and "this strategy wins in trends"
+becomes true by construction, whatever the strategy is. A window where the coin
+gained 30% while swinging 60% is chop that happened to end up, not a trend.
+
+Pooling all seventeen allocations gives 136 window-observations, and the split
+is the most useful thing the validation produces:
+
+| Regime | Windows | Profitable | Beat holding | Median return | Median buy-and-hold |
+| --- | --- | --- | --- | --- | --- |
+| Bull | 31 | 87% | **6%** | +19.3% | +89.4% |
+| Bear | 46 | 52% | **100%** | +3.0% | −46.4% |
+| Chop | 59 | 80% | 80% | +9.4% | −1.2% |
+
+The book is not a way to make more money in a rally — in a rally it captures
+about a fifth of the move and loses to holding in fourteen windows out of
+fifteen. What it does is stay flat-to-positive through the half of history where
+holding lost 46%. That is the entire edge, and it is worth knowing which one you
+own before a bull market makes the strategy look clever and a bear market makes
+it look broken.
+
+### Symbol profiling
+
+Validation rates vary from 0% to 39% across symbols — a spread far wider than
+the gap between strategies. `python run.py screen SYMBOL [SYMBOL ...]` measures
+the shape of a price series: drift ratio, Hurst exponent, lag-1 autocorrelation,
+the share of bars in a directional regime, realised volatility.
+
+**These numbers do not predict where strategies validate, and nothing in the
+pipeline consults them.** Two screens were built on them. The first, ranking on
+how cleanly a symbol trended, correlated 0.03 with the validation rate. The
+second ranked on the two measures that *did* correlate on a 20-symbol sweep — and
+because those measures had been chosen for correlating, it was tested properly:
+run on twenty fresh symbols with its ranking written to disk before the sweep
+started, it scored Spearman −0.17 against validation rate, and its top half
+validated slightly worse than its bottom half.
+
+The module is kept as a descriptive profiler, with that record in its docstring.
+Every strategy family is still swept on every symbol.
+
+### Execution parity and coverage
+
+Two reports exist to keep the live run comparable to the backtest that justified
+it, both in the dashboard and both readable through the API.
+
+`bot/parity.py` matches every live trade against the trade the backtest would
+have made on the same candles, and reports the difference in decision bar, fill
+price and realised return. This is the primary go-live evidence: it is pairwise,
+so a timing or pricing defect is visible immediately instead of being averaged
+into a win rate that would take dozens of trades to estimate.
+
+Parity scores the engine as it stands now, not as it used to be. Trades entered
+before `GUARD_LANDED` — the moment the stale-entry guard shipped — are listed
+for the record and excluded from every total, because a sample that still
+contains a fixed defect makes the current engine look worse than it is, and
+makes the next fix look like an improvement that no live trade caused. Set the
+kv key `parity_baseline` to move the line the next time the engine changes. The
+money those trades made or lost stays in equity, realised P&L and the drawdown
+gate; only the verdict is withheld.
+
+`bot/coverage.py` derives, from the per-tick equity snapshots, which candle
+closes the process was actually alive for. This exists because downtime is not
+neutral. The engine reads the signal on the last closed candle, so a bot that
+wakes up two days into a move sees a flat-to-long transition that is two days
+stale and buys the top of it — measured at 25.8% and 27.8% worse than the
+modelled fill on the first two live trades. `MAX_ENTRY_LAG_BARS` in
+`bot/live.py` now refuses any entry more than one candle after the signal turned
+and logs the miss instead, so a gap costs a skipped trade rather than a bad one.
+
+This is also why the bot trades 4h and 1d rather than something faster. A round
+trip costs 0.30%; the median 15m candle moves 0.122% and the median 4h candle
+0.624%, so on the fast timeframe most candles cannot pay for the trade that
+crosses them. A full 15m sweep of 40 symbols does validate 59 combinations, but
+3000 candles of 15m is 31 days of history and only one of the top six survived a
+walk-forward on 180 days. On top of that, 15m closes 96 candles a day against 6
+at 4h, and with the entry guard in place every close the machine sleeps through
+is a skipped trade. Faster is worse here for two independent reasons.
+
+Coverage is cumulative, not a rolling window, and that has a consequence worth
+stating plainly: a miss never expires. Twenty-two missed closes on record means
+220 closes have to accumulate before the 90% gate is even reachable — about a
+month of unbroken running at seven closes a day — and every further day off adds
+seven more misses and pushes the target another ten days out. Uptime, not code,
+is what decides when the forward test finishes.
+
+So coverage has a baseline, in the same shape as parity's and for the same
+reason. `POST /api/coverage/baseline` sets aside everything missed up to that
+moment; the report keeps showing what was excluded and when, and the previous
+figure goes into the event log. It exists for one event — the run moving to a
+host that does not sleep — and it is deliberately not wired to a button.
+Resetting it because the number is unflattering is the one use that defeats the
+purpose, because the number would then measure nothing at all.
+
+### Realised against predicted
+
+Walk-forward produces a prediction: for the deployed book, a median quarter and
+a worst quarter, scaled by each allocation's share of the account. `bot/tracking.py`
+writes that prediction into the `expectations` table the first time the book is
+seen, keyed by a fingerprint of every symbol, interval, strategy and parameter
+set, and never recomputes it.
+
+Never recomputing is the whole point. A walk-forward run today includes the
+period the bot has been live, so an expectation derived from it has quietly
+absorbed the outcome it is supposed to be judging. Comparing that against
+realised results is not a forward test — it is a fit reported as a forecast. The
+prediction has to be older than the data it is measured against or it is not a
+prediction.
+
+The comparison is a band, not a line, because one expected number cannot be
+falsified sensibly: the walk-forward says the median quarter is +9% and the
+worst is −12%, and a realised −3% is unremarkable against that pair and alarming
+against the median alone. The band's width is the distance between the two,
+scaled to elapsed time by the square root of the horizon — the way dispersion
+actually accumulates. Scaling it linearly would claim the worst plausible first
+day is a ninetieth of the worst plausible quarter, which no market has ever
+done.
+
+Realised is measured as the *change* in equity since each baseline took effect,
+never as an absolute. The testnet account was seeded above the configured
+capital and holds hundreds of assets the bot never bought, so the level is off
+by a constant — and a constant cancels out of a difference. Book changes start a
+new segment that continues from where the previous one ended, so switching
+allocations does not reset the score. No verdict is issued before 14 days,
+because under that the realised curve is a couple of trades either side of
+nothing.
+
+The readiness gate reads the band: it passes when the realised curve is at or
+above the bottom of it. Sitting below the median is normal and does not fail;
+leaving the band from underneath is the thing worth catching, and catching it in
+week six is worth considerably more than confirming it in month nine.
+
+### Portfolio risk controls
+
+Per-trade stops buy drawdown reduction with return and are destructive on mean
+reversion (measured below). These act on the book instead, where they cannot
+pre-empt a strategy's own exit. All three are **off by default** and configured
+under **Ajustes → Risco da carteira**.
+
+| Control | Effect |
+| --- | --- |
+| Equity kill switch | Stops opening new positions past a drawdown from peak equity. Open positions keep their own exits — closing everything at the bottom is the behaviour the stop study measured as destructive. Resumes only after recovering past a separate, smaller threshold, so the switch does not chatter |
+| Volatility-scaled sizing | Scales each order by recent realised volatility against a 2.3% daily reference, clamped to 0.4×–1.6×, so a flat quote amount means the same risk in a quiet symbol as in a violent one |
+| Correlation cap | Refuses an entry correlating above the threshold with an already-open position |
+
+## Strategies
+
+| Family | Strategy | Idea |
+| --- | --- | --- |
+| Trend | EMA Crossover | Fast EMA over slow EMA, optional long-term trend filter |
+| Trend | MACD Trend | Long while the MACD histogram is positive |
+| Trend | Supertrend | ATR-banded trend follower |
+| Trend | ADX Filtered Trend | EMA trend entries, only in directional markets |
+| Breakout | Donchian Breakout | Turtle-style N-bar high entries |
+| Breakout | Bollinger Breakout | Rides volatility expansion |
+| Reversion | Bollinger Mean Reversion | Fades stretched moves back to the mean |
+| Reversion | RSI Mean Reversion | Buys oversold, exits on recovery |
+| Reversion | Stochastic Reversion | %K crossing up out of oversold |
+| Reversion | Rolling VWAP Reversion | Buys z-score dips below rolling VWAP |
+| Momentum | Momentum (ROC) | Time-series momentum with a volatility filter |
+| Ensemble | Ensemble Vote | Holds when several sleeves agree |
+| Benchmark | Buy & Hold | The bar every strategy has to clear |
+
+Each ships a parameter grid the research engine sweeps, then a small risk grid
+(fixed stop, stop + target, trailing stop) is fitted to the finalists.
+
+## What the research found
+
+Measured across two runs: 540 candidates on 5 large-cap symbols, then 1440
+candidates on 20 symbols. "Validation rate" is the share that survived
+out-of-sample; "median alpha" is the median out-of-sample return minus
+buy-and-hold over the same window. See [ROADMAP.md](ROADMAP.md) for the trail.
+
+| Family | Rate, 5 majors | Rate, 20 symbols | Median alpha, 20 symbols |
+| --- | --- | --- | --- |
+| Momentum | 11.1% | 12.5% | +8.6pp |
+| Breakout | 12.2% | 9.6% | **+25.1pp** |
+| Reversion | **0.6%** | **9.2%** | +22.1pp |
+| Ensemble | 6.7% | 8.3% | +16.9pp |
+| Trend | 6.1% | 6.2% | +19.4pp |
+
+Four results are worth internalising before trusting any leaderboard.
+
+**The tradeable universe changes which strategies work — more than the
+strategies themselves do.** On BTC, ETH, BNB, SOL and XRP, mean reversion
+validated once in 180 attempts and looked definitively dead. Widening to 20
+symbols took it from 0.6% to 9.2%, with a median alpha above 20 points. Nothing
+about the strategies changed. The first conclusion was not wrong about the
+data — it was wrong about how far the data generalised.
+
+**Strategies beat buy-and-hold on choppy markets, not on crashes or rallies.**
+Ranking symbols by their buy-and-hold return over the validation window, the
+best validation rates sit in the middle of the range — UNI (−32% buy-and-hold,
+36% validated), ETH (+27%, 39%), DOGE (−27%, 33%) — while both extremes are
+barren: DOT (−87%, 5.6%) and ATOM (−84%, 5.6%) at one end, TRX (+301%, 0%) and
+BNB (+188%, 5.6%) at the other. The mechanism is intuitive once seen: a
+one-directional crash offers a long-only strategy nothing to catch, and a
+relentless rally cannot be beaten by anything that ever sits in cash. Edges live
+where there are swings to trade.
+
+**Daily candles beat intraday.** `1d` validated at 11.4% against `4h` at 5.6%
+across 20 symbols, and at 12.8% against 3.3% and 1.1% for `1h` in the earlier
+run. The candle cap is on count, not on time, so 5000 daily candles reach back
+three years while 5000 hourly candles cover seven months — and a validation
+window that short is usually one market regime rather than several. The `4h`
+sweep also showed the worst overfitting gap, losing 1.57 Sharpe from in-sample
+to out-of-sample.
+
+**Protective exits cut drawdown and do not add return.** This was measured
+twice. The first study, against 31 candidates, ran on a backtester that bought
+straight back in on the bar a stop fired, at that bar's open — above the level it
+had just sold at. Every stop exit was a guaranteed loss, so no stop could
+possibly have helped, and the study measured its own defect. That is fixed: after
+a protective exit the strategy stays flat until its own signal drops and turns
+long again.
+
+The corrected test covers all 194 distinct validated candidates from every
+research run, with each exit multiple fixed across all of them — never fitted per
+candidate — and measured only on the out-of-sample slice.
+
+| Configuration | Median Δ return | Mean Δ drawdown | Median Δ Calmar | Better / worse |
+| --- | --- | --- | --- | --- |
+| ATR stop 1.5× | −1.94pp | **+2.90pp** | −0.023 | 92 / 100 |
+| ATR stop 2.0× | −0.60pp | +1.37pp | 0.000 | 90 / 94 |
+| 5% stop | −1.52pp | **+5.97pp** | −0.006 | 84 / 97 |
+| 8% stop | 0.00pp | +3.38pp | 0.000 | 77 / 82 |
+| 5% stop + 10% target | −21.74pp | **+15.55pp** | −0.267 | 46 / 147 |
+| ATR trail 6.0× | −8.01pp | +1.53pp | −0.178 | 41 / 118 |
+| ATR trail 2.0× | −47.01pp | +6.18pp | −0.802 | 9 / 183 |
+
+Stops do what stops are supposed to do: a moderate one takes 3–6pp off the worst
+drawdown, and one paired with a target takes off 15pp. What they do not do is
+improve risk-adjusted return — median ΔCalmar is zero or negative for every
+variant, and none wins on more candidates than it loses on. Trailing stops are
+strictly destructive: a trail tight enough to protect anything exits a position
+the strategy is still right about, and it cannot re-enter until its signal
+cycles.
+
+ATR scaling did not beat plain percentages. The argument for it — that 5% means
+something different on every symbol — is sound, and at this sample size it simply
+did not show up.
+
+**The family breakdown inverts the obvious expectation.** Mean reversion is the
+strategy with no natural stop: it exits when price returns to its mean, which in
+a sustained move may be never. It is also the family a stop damages most — a 5%
+stop costs the median reversion candidate **20.6pp** and wins on 24 of 73. The
+reason is in the entry: reversion buys *after* a decline, so a stop below the
+entry sits directly in the path of the continuation. It is a rule that sells the
+bottom. Trend and breakout enter on strength, so their stop only fires when the
+thesis is already broken — and there the numbers lean slightly positive (5% stop
+on trend: +6.5pp drawdown, better on 23 of 43), though not far enough from a coin
+flip to act on.
+
+So the conclusion is not "risk management does not matter". It is that a
+per-trade price stop trades return for drawdown at roughly a fair price, and is
+actively wrong for mean reversion. `bot/backtest.py` supports ATR and percentage
+exits and the research risk grid can fit them, but no live allocation uses one.
+Risk is managed at the book level instead — see **Portfolio risk controls**
+above.
+
+## Current live allocation
+
+Seventeen strategies across five families. The first six were chosen from the
+20-major sweep under criteria stricter than the validation gate — at least 10
+out-of-sample trades, consistency at or above 62.5%, at least 30 points of alpha,
+and a positive Sharpe in both slices. Four more were harvested afterwards from
+the validated candidates that no allocation had ever used, and the last seven
+came from a walk-forward of the 20 highest-scoring validated candidates still
+outside the book, of which 17 held up.
+
+Every one is walked forward across eight rolling quarters *on the exact
+parameters it trades*, which is a much less flattering test than the single
+held-out split that first surfaced it. All seventeen pass.
+
+| Symbol | Timeframe | Strategy | Quarters profitable | Beat buy-and-hold | Median quarter | Worst quarter | Worst drawdown | Trades |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| XRPUSDT | 1d | Bollinger Breakout | 75.0% | 50.0% | +7.5% | −10.9% | −18.8% | 14 |
+| AAVEUSDT | 1d | Rolling VWAP Reversion | 87.5% | 62.5% | +19.6% | −22.7% | −37.0% | 17 |
+| DOGEUSDT | 1d | RSI Mean Reversion | 75.0% | 62.5% | +7.8% | −12.4% | −18.0% | 12 |
+| XLMUSDT | 4h | Bollinger Breakout | 62.5% | 75.0% | +13.2% | −10.5% | −24.1% | 48 |
+| ETHUSDT | 1d | Momentum (ROC) | 62.5% | 62.5% | +8.5% | −26.6% | −36.3% | 56 |
+| IMXUSDT | 4h | Rolling VWAP Reversion | 62.5% | 75.0% | +7.0% | −6.8% | −16.4% | 33 |
+| ATOMUSDT | 4h | Momentum (ROC) | 75.0% | 75.0% | +5.9% | −29.8% | −31.5% | 144 |
+| ARBUSDT | 4h | Bollinger Breakout | 62.5% | 75.0% | +12.8% | −11.3% | −20.8% | 46 |
+| CHZUSDT | 4h | Ensemble Vote | 62.5% | 75.0% | +10.1% | −18.5% | −21.1% | 69 |
+| NEARUSDT | 4h | Bollinger Mean Reversion | 87.5% | 62.5% | +5.3% | −3.7% | −18.2% | 25 |
+| ALGOUSDT | 4h | RSI Mean Reversion | 87.5% | 50.0% | +17.9% | −4.1% | −23.2% | 53 |
+| ETCUSDT | 4h | Rolling VWAP Reversion | 62.5% | 75.0% | +10.9% | −6.6% | −21.4% | 33 |
+| GRTUSDT | 4h | RSI Mean Reversion | 87.5% | 87.5% | +11.0% | 0.0% | −20.2% | 21 |
+| DOTUSDT | 4h | Bollinger Breakout | 75.0% | 87.5% | +8.8% | −25.1% | −27.9% | 44 |
+| CRVUSDT | 1d | Bollinger Mean Reversion | 87.5% | 50.0% | +15.6% | −22.8% | −37.4% | 18 |
+| UNIUSDT | 1d | Rolling VWAP Reversion | 62.5% | 62.5% | +15.8% | −6.0% | −16.5% | 7 |
+| SEIUSDT | 1d | Rolling VWAP Reversion | 75.0% | 75.0% | +7.3% | −21.7% | −34.2% | 14 |
+
+The selection favours *strategy* diversification over *symbol* diversification,
+because crypto assets are heavily correlated with each other while breakout,
+reversion and momentum fail in different conditions.
+
+Additions used to be capped at 0.80 correlation of daily returns against
+everything already in the book, which is why GRTUSDT and DOTUSDT were absent for
+several phases despite winning seven and six of eight quarters. That cap was
+replaced, because it measured the wrong thing. Correlated *prices* only produce
+correlated *losses* if the strategies are in the market at the same time, and
+these are mostly reversion rules with different lookbacks and thresholds, so
+they rarely are. Measured over 501 days of the current book: the highest
+position overlap between any two allocations is a Jaccard index of 0.45, the
+average number of simultaneous positions is 3.3, the maximum ever observed is 9
+of 17, and there are 23 days with no position at all. The criterion is now
+overlap rather than price correlation.
+
+AAVEUSDT, CRVUSDT, ETHUSDT and SEIUSDT reach drawdowns of 34–37% on their own,
+before any correlation with the rest of the book. They are the four worth
+watching. GRTUSDT is the opposite case and worth reading carefully: a worst
+quarter of exactly 0.0% does not mean it cannot lose, it means that in the worst
+of its eight quarters the strategy never took a trade. An untested quarter is
+not a survived one.
+
+Each allocation trades a fixed quote amount rather than the whole account, so
+live returns scale to roughly a tenth of the single-strategy backtest figures.
+That is the intended trade-off: less concentration for less variance. Fully
+deployed, seventeen positions at 500 USDT would be 8500 of the 10 000 notional —
+but the overlap measurement above says the realistic peak is closer to 4500, and
+the typical commitment closer to 1650.
+
+## Using the dashboard
+
+The sidebar has five views, and they are ordered by how often you need them.
+
+| Menu | What it is for |
+| --- | --- |
+| **Painel** | The state of the money right now, for either of the two books. A switch at the top picks between *Livro validado* — the rule-based allocations that passed the walk-forward, with the exit study underneath them — and *Laboratório ML*, the ranking experiment. Both are drawn with the same tiles and the same arithmetic: equity curve, P&L split into realised and open, win rate, profit factor, drawdown. Each book's activity feed shows only its own lines. The page to open first and to leave open. |
+| **Pesquisa** | Where allocations come from. Runs the parameter search over history, ranks candidates on out-of-sample results only, and lets you promote the survivors into the live book. Nothing here trades; it produces candidates. |
+| **Operações** | The audit trail. Every buy and sell in the order they happened, and the same trades grouped by coin with the signal that opened and closed each one. Answers "what did it do, and why". |
+| **Validação** | Whether the book deserves real money. A checklist that can say no, plus the walk-forward table behind it — each allocation re-tested quarter by quarter on the parameters it is actually deployed with. |
+| **Ajustes** | Execution mode (`paper` or `testnet`), size per order, portfolio risk limits, and the list of active allocations. The only view that changes what the bot does. |
+
+1. **Pesquisa** — pick pairs and timeframes, hit *Rodar pesquisa*. Prefer
+   `1d` and `4h` with 5000 candles, for the reason above. A few minutes later
+   the ranking fills in. Click any row for its equity curve and the
+   in-sample/out-of-sample comparison.
+2. Tick the strategies you want and press *Operar selecionadas*. One allocation
+   per symbol is enforced — two strategies on the same asset would fight over
+   the same spot balance.
+3. **Ajustes** — choose `testnet` (real orders, fake money) or `paper`
+   (simulated fills, nothing sent), set the size per trade, save.
+4. Press **Ligar robô**. Every cycle it reads the last *closed* candle, applies
+   the strategy, and buys or sells accordingly.
+5. **Painel** shows equity, P&L, win rate, profit factor, drawdown and Sharpe.
+   The *Lucro e perda* panel spells out the arithmetic in order — starting
+   capital, what closed trades did to it, what open trades are currently doing
+   to it, what is left — because a single total hides the difference between
+   money that is banked and money that can still evaporate. The fees
+   paid so far are shown underneath; they are already deducted from every other
+   number on the page. Where the exchange reported a commission the figure is
+   the measured one, and the panel says how many orders that covers; the rest
+   fall back to the configured rate. On the Spot Testnet, which charges nothing,
+   they all do.
+
+   *Saldo livre*, in the top bar, is a different quantity and will normally
+   disagree with *Patrimônio*. That is by design, not a defect. Equity is the
+   bot's own ledger: the starting capital configured in **Ajustes** plus what
+   this run's trades have done to it. The balance is the exchange account's free
+   quote asset, and three things separate them. The account did not start at the
+   configured number — a testnet faucet hands out whatever it hands out, and on
+   this one that was about 21 USDT more than the 10,000 the book assumes. The
+   account also carries trades taken before the current history was reset, which
+   the ledger no longer knows about. And while a position is open the balance
+   drops by the full order size, because that money is now sitting in the coin,
+   whereas equity keeps valuing the coin at its market price.
+
+   Reconciling the two exactly is not a goal, and on a testnet account it is not
+   even possible: the faucet preloads several hundred assets that have nothing
+   to do with any strategy. Equity is deliberately the book and not the wallet.
+   What must reconcile is each individual trade, and that is what the **parity**
+   check on the Validação view measures.
+
+   *Sinais agora* lists every allocation with the one
+   comparison it is waiting on — the value measured on the last closed candle,
+   the level it has to cross, and the distance between them — sorted so the
+   closest to firing is at the top. Seventeen allocations on 4h and 1d candles
+   are silent most of the time, and this panel is what distinguishes a bot that
+   is waiting from a bot that is stuck. For a coin already held the row flips to
+   the exit rule, because that is the decision actually pending.
+6. **Operações** opens with *Compras e vendas*, the raw order ledger: every buy
+   and every sell in the order they happened, with the cash movement, the
+   realised result where there is one, and the reason. It is not grouped,
+   because a statement that reorders itself is not a statement. Below it,
+   *Operações por moeda* groups every entry and exit by coin. Each row expands into the
+   signal that opened the position and the one that closed it — the rule in
+   words, the indicator values at that candle, the price paid, and the time
+   between them. The card names the candle the rule fired on, which is not
+   always the candle the order was sent on: orders are filled on the open after
+   the decision, so the two are normally one candle apart. The *Sinal de compra*
+   column carries the decisive pair on one line — the measured value against the
+   level it crossed — which is the same number *Sinais agora* tracks before the
+   trade exists. Simulated rows carry it too, so the column is readable before
+   the bot has made a single live trade. The *Simulado* toggle
+   replays the same allocations over recent history, so the view is readable
+   before the bot has closed its first trade; those rows are a simulation, not
+   money made.
+7. **Validação** opens with *Pronto para conta real?*, a checklist that compares
+   what the walk-forward expects against what the live run has actually
+   produced, and can say no. *Realizado contra o previsto* plots the live equity
+   curve inside the band predicted for it on the day the book shipped, so a run
+   drifting out of its own forecast is visible in week six rather than month
+   nine. *Onde a vantagem aparece* splits every walk-forward window by market
+   condition, which is where the book's actual character shows: it loses to
+   holding in a rally and beats it in every measured bear window. *Cobertura*
+   reports the share of candle closes the process was awake for, and names what
+   an earlier baseline set aside. Below all of it, the walk-forward itself walks
+   each live allocation across eight rolling quarters on its deployed parameters
+   and shows the quarter-by-quarter table behind the verdict. This is the number
+   to trust — a single backtest total is not.
+
+## Terminal usage
+
+```bash
+python run.py check                              # connectivity + keys
+python run.py research --symbols BTCUSDT ETHUSDT --intervals 1d 4h
+python run.py backtest BTCUSDT 1d bollinger_breakout
+python run.py walkforward XRPUSDT 1d bollinger_breakout
+python run.py screen BTCUSDT ETHUSDT XRPUSDT SOLUSDT DOGEUSDT
+python run.py serve --port 9000 --no-browser
+```
+
+## Layout
+
+```
+bot/
+  config.py       settings from .env
+  exchange.py     Binance REST client (market data + signed order calls)
+  indicators.py   vectorised technical indicators
+  strategies.py   strategy library + parameter grids
+  backtest.py     event-driven backtester and metrics
+  research.py     sweep, out-of-sample validation, ranking
+  walkforward.py  rolling fit/trade windows over the whole history
+  screening.py    descriptive price-shape profiling (predicts nothing — see docstring)
+  portfolio.py    book-level risk: kill switch, volatility sizing, correlation cap
+  live.py         live trading engine
+  parity.py       every live trade against the trade the backtest would have made
+  coverage.py     which candle closes the bot was actually awake for
+  tracking.py     the expectation frozen when the book shipped, against what happened
+  feeds.py        point-in-time collection of market context (see below)
+  sentiment.py    FinBERT scoring of headlines, at the moment they arrive
+  lab.py          the parallel experiment: cross-sectional ranking model + its own book
+  report.py       dashboard aggregations
+  storage.py      SQLite persistence
+  api.py          FastAPI app
+web/              dashboard (no build step, plain HTML/CSS/JS)
+deploy/           systemd unit, host provisioning, Windows stopgap
+data/trader.db    created on first run
+ROADMAP.md        what has been tried, what was learned, what is next
+```
+
+## Running it unattended
+
+The forward test is gated on uptime, and uptime is the one input the code cannot
+supply. `deploy/` holds what is needed to move the run off a desktop:
+
+* `install.sh` provisions a fresh Ubuntu host — toolchain, swap, service
+  account, virtualenv, NTP — and installs the unit. Re-running it redeploys the
+  code without touching `data/` or `.env`.
+* `pouch.service` runs the dashboard under systemd with `Restart=always`. The
+  bot re-enables itself on startup whenever the saved config had it enabled, so
+  a reboot costs one poll interval.
+* `windows-task.ps1` is the stopgap for running on a desktop in the meantime: a
+  scheduled task that starts at logon and restarts on failure, plus disabling
+  sleep and hibernate.
+
+The service binds to localhost deliberately. The dashboard has no login and the
+same interface that plots equity also places orders, so it is reached over an
+SSH tunnel rather than published.
+
+`deploy/README.md` covers which free hosts actually work. The short version:
+Oracle Cloud's Always Free tier in a **non-US region**, because Binance answers
+US IP ranges with HTTP 451 — which rules out Google Cloud's free `e2-micro`
+entirely, since it is only free in US regions. Render, Railway and Fly no longer
+offer a free always-on process, and a GitHub Actions cron has no persistent
+disk for the database and no guarantee it runs on time.
+
+## Collecting market context
+
+A model that predicts direction from funding, positioning, sentiment or news can
+only be tested honestly against data that was *available* when the decision would
+have been made. Two separate problems make public history unusable for that, and
+`bot/feeds.py` exists because neither can be solved later.
+
+**Retention.** Binance keeps roughly 30 days of open interest and long/short
+ratio. A walk-forward needs eight quarterly windows. That history is not
+expensive, it is gone — the only way to obtain it is to begin writing it down,
+which is why collection starts now rather than when there is a model to use it.
+
+**Backdating.** News feeds report a `published_at` set by the publisher. Items
+are edited, re-dated and indexed late, so that timestamp is routinely earlier
+than the moment the item was readable. A model trained on it learns from
+headlines that had not appeared yet, scores well out of sample, and collapses
+live. It is the most common way a sentiment model is wrong and it is invisible in
+every metric until real money is on it.
+
+So every row carries two timestamps and never conflates them: `source_ts` is what
+the source says the observation is about, and `observed_at` is when this process
+received it. Only `observed_at` may be conditioned on. It is accurate to one poll
+interval and it cannot run ahead of reality, which is the only property that
+matters.
+
+| Feed | Source | Past available | Cadence |
+| --- | --- | --- | --- |
+| Funding rate | Binance perpetuals | full, from 2020 | hourly |
+| Open interest | Binance perpetuals | 30 days, then forward only | hourly |
+| Long/short ratio | Binance perpetuals | 30 days, then forward only | hourly |
+| Fear and Greed | alternative.me | full, from 2018 | 6-hourly |
+| Headlines | four public RSS feeds | none, forward only | 10 minutes |
+
+Every poll deliberately requests far more history than one interval, and a unique
+index on `(feed, symbol, source_ts)` turns the overlap into no-ops. That is the
+gap-healing mechanism: a week of downtime is repaired by the next successful
+call rather than becoming a permanent hole.
+
+Fear and Greed is collected as a **control**, not as a hope. Measured against
+next-day returns over 1497 days it explains nothing — correlation +0.015 on BTC,
+and no threshold rule beats the base rate. A feature known to be inert is useful:
+a model that finds signal in it has found overfitting, and that is worth being
+able to detect.
+
+Headlines are scored the moment they arrive, by FinBERT running locally
+(`bot/sentiment.py`). This is not an optimisation. A sentiment model trained
+after the fact carries the outcome in its weights, so scoring old headlines
+today leaks the future in a way no timestamp discipline can catch — the leak is
+inside the scorer, not in the data. Scoring at collection time is the only
+version that can be walked forward honestly. Each row stores the score, the
+model that produced it and when it was produced, because the day the model is
+upgraded is the day older scores stop being comparable.
+
+Collection runs on the server process, not the trading loop, and `/api/bot/stop`
+does not stop it. The dataset's whole value is being unbroken; pausing trading to
+change a strategy must not put a hole in it. `POST /api/feeds/backfill` pulls the
+two series that have downloadable history, and is worth running once on a new
+install. Progress is on the Pesquisa tab.
+
+## The parallel experiment
+
+Everything above is rule-based: an indicator crosses a level and the book acts.
+`bot/lab.py` is the other thing — a gradient-boosted model that reads 36
+features a day across the 18-coin universe and decides *which* coins to hold. It
+runs beside the forward test, on its own paper capital, and it is allowed to be
+wrong out loud.
+
+It is isolated by schema rather than by a flag. It owns `lab_positions`,
+`lab_equity` and `lab_models`, and there is no code path from it into
+`positions`, `orders` or `equity_snapshots`. The forward test is a test of a
+frozen expectation; a second book that could write into its ledger would end it.
+
+**It does not predict the market.** That question was tried first and it is not
+answerable on this data: eighteen coins correlated around 0.8 give one market
+opinion dressed up as eighteen, and a model confident enough to be selective
+fires on about twenty days in six years — all of them crashes. So the question
+asked instead is cross-sectional: given that the book is in the market anyway,
+holding three coins out of eighteen, does the model pick better than a coin
+toss? The label is whether a coin beat *that day's median coin*, which puts
+market direction on both sides of the comparison, where it cancels.
+
+The benchmark is holding all eighteen equally weighted, not zero and not cash.
+Beating zero in a bull market is not a skill.
+
+| Measured out of sample | |
+| --- | --- |
+| Information coefficient | +0.0934 over 1,319 days, t = 11.64, positive in all 6 folds |
+| Net of the benchmark | +0.117% a day, 5 of 6 folds ahead |
+| Same test, returns shuffled within each day | −0.075% a day |
+| Turnover | 2.2% a day, against a 0.30% round trip |
+
+The third row is the control and it is permanent, not a one-off check. Shuffling
+returns *within* a day preserves every day-level fact — the market's move, its
+dispersion, which days were violent — and destroys only the coin selection. If
+it ever stops losing, the edge was never coin picking, and the dashboard says so
+in those words.
+
+The fourth row is why the book is sticky. The raw signal is worth about +0.12% a
+day and a round trip costs 0.30%, so a model that is right every day and acts
+every day loses money. It holds a basket of three, keeps a coin while it stays
+inside the top twelve, and rebalances weekly. Cost is charged on turnover only.
+
+Both books also report `capital_at_work` next to their capital. A basket of
+three at 100 USDT deploys 300 whatever the capital line says, so a return
+computed on capital would understate the experiment about seventeen-fold and the
+comparison between the two books would really be a comparison of how much idle
+cash each is sitting on.
+
+Orders are floored to the symbol's lot step, here as in the live book. An
+exchange sells in steps, so 100 USDT of a coin is almost never 100 USDT of the
+coin, and the amount recorded is what the order would really have cost rather
+than what it asked for. Recording the request instead would print a round 100 on
+every line — the one figure guaranteed to be wrong, and the figure every return
+in the book is divided by.
+
+`POST /api/lab/train` retrains — six purged walk-forward folds with a three-day
+embargo, about a minute — and the *Laboratório ML* tab shows every fold, the
+controls and today's full ranking with the basket marked.
+
+## The exit study
+
+The live book holds until its strategy says to leave, and the standing objection
+is that this hands back gains that were already on the screen: a position up 3%
+becomes a position down 1% while the rule waits for its own condition. The
+obvious answer is to sell at a fixed profit instead.
+
+`bot/mirror.py` runs that argument forward instead of arguing it. Four arms
+shadow the live book's positions — same coin, same entry price, same entry
+moment, same size — and differ only in how they get out:
+
+| Arm | Exit |
+| --- | --- |
+| `rule` | Exactly when the live book exits. The control. |
+| `t2` | Sells the moment the position shows +2%, else waits for the rule. |
+| `t5` | Same, at +5%. |
+| `t10` | Same, at +10%. |
+
+The targets are written down before any of them has traded, and there are three
+rather than thirty. Picking the best of a wide grid afterwards would be the same
+selection error the lab's parameter sweep is careful not to claim as evidence.
+
+Because only the exit varies, a difference between arms is the exit and can be
+nothing else. The panel leans on that: alongside the per-arm totals it reports a
+**paired** comparison, matching each arm's trades to the control's by the live
+position they both shadow. Pairing removes the variance from *which* coins
+happened to be traded, which on a small sample is most of the variance there is.
+
+Some details that decide whether the numbers mean anything:
+
+- **Targets fill on the candle's high, not its close.** A resting limit order
+  fills when the price trades through it. Reading closes would miss every target
+  that was hit and given back inside one bar — precisely the case in dispute.
+- **The entry bar is excluded.** Its high may have printed before the entry, and
+  crediting a fill to a price that traded before the position existed would
+  invent profit. The bar still forming is excluded too, but the current price
+  stands in for it: if the market is trading above the target now, the order is
+  filled now.
+- **Every arm pays the same exit cost**, the 0.30% round trip the research
+  assumed. A target is a limit order and arguably suffers less slippage than the
+  rule's market exit; charging them differently would be a thumb on the scale.
+- **Inherited trades are tagged and reported separately.** The study adopts the
+  positions that were already open when it started, so it begins today rather
+  than in three weeks, but a trade it did not choose is not evidence about it.
+- **A pair needs both exits.** The paired figure counts a trade only once the
+  control and the target arm have *both* closed it. While the target has sold
+  and the rule is still holding there is nothing to subtract, so the panel says
+  how many positions are in that state rather than reporting "no pairs" and
+  looking broken.
+- **The mean travels with its spread and its t.** A 0.4 pp difference over eight
+  trades that scatter across ten points has separated nothing, and below |t| = 2
+  the card says *dentro do ruído* instead of colouring a winner. Every pair is
+  also listed, coin by coin, with both exits and the difference — pairing is the
+  design where each row can be checked by hand, and a mean built from trades the
+  reader cannot see is a number to take on trust.
+- **The panel says the sample is too small, in words**, until roughly thirty
+  closed trades per arm. A ranking shown without that line invites reading a
+  winner out of noise.
+
+Nothing has to be saved for the comparison to improve on its own. Every mirrored
+trade keeps its entry price, exit price, reason and result in `mirror_positions`
+alongside the live position it shadowed, so each paired difference is a function
+of rows that are already durable. A second table holding the differences would
+be a copy that can drift from the trades it was derived from; the statistics are
+recomputed from the ledger on every read instead.
+
+Isolation works the same way the lab's does: it reads `positions` and writes
+only `mirror_positions` and `mirror_equity`. There is no code path from it into
+`positions`, `orders`, `equity_snapshots` or any `lab_` table, so it cannot
+disturb the two tests already running.
+
+**The study places no orders.** It is a measurement, not a book: it shadows
+trades the live book has already made and prices exits from recorded candles.
+That is a limitation worth stating plainly — a real order would also pay the
+queue, the partial fill and the spread at the moment it rested — and it is also
+what makes the study affordable, because there is no second account funding it.
+What it can answer honestly is the *paired difference*, since both sides of
+every pair are priced by the same method and any error the method makes is on
+both sides of the subtraction.
+
+Its capital is one figure shared by all four arms rather than multiplied by
+them: the arms are alternative histories of the same money and only one of them
+can be true. Multiplying the base by four would invent capital that never
+existed and divide every reported return by four. The figure is a denominator
+and nothing else, so it is set to the live book's own capital, $5,000 — that
+makes the control arm's percentages directly comparable with the tiles above it,
+and it does not mean $10,000 is at stake anywhere, because the only account with
+money in it is the live book's.
+
+Changing that figure restates the study's stored curves rather than stepping
+them. Equity is written as capital plus P&L, so a new capital would put a cliff
+in all four lines at the instant it was set — the same fault that once made the
+live book's kill switch fire on an accounting change. The live book answers it
+by keeping its raw snapshots and rebasing at read time, because those rows
+record what the account reported. These rows record nothing of the kind; they
+are computed from the study's own ledger, so they are restated in place and the
+differences between points, which are all the chart is for, survive untouched.
+
+Position size is $100, the same as the live book, which is what makes the
+control arm readable: `rule` is the validated book itself, restricted to the
+trades mirrored since the study began. The tiles at the top of the tab cover a
+longer span, so those two sets of numbers are the same money over different
+periods; the like-for-like read is inside the study's own table.
+
+`POST /api/mirror/start` runs it on a five-minute poll, and the study sits in the
+*Livro validado* tab, under the book it is asking about, as **one panel**: four
+rows — one per exit, with its equity, its return and its distance from the rule
+— then the four curves on one chart, then the verdict in a sentence. Because all
+four start from the same capital and the same entries, the chart says the whole
+thing at a glance: where the lines separate is an exit that differed, and nothing
+else.
+
+Everything else folds. The paired table, the pair-by-pair list, the study's
+ledger and its activity feed live behind a *Os números por trás* summary,
+because the answer is what belongs on a dashboard and the arithmetic is what
+belongs one click away. An earlier version had all of it open at once — four
+tiles, a nine-column table, two comparison tables, a ledger and a second
+activity feed — and it buried the book the tab is actually about.
+
+## Interpreting results honestly
+
+A leaderboard is a list of survivors, and survivors of a large search are partly
+survivors of luck. Testing 13 strategies across hundreds of parameter sets on
+dozens of symbols means some candidates clear every gate by chance alone. The
+out-of-sample split, the buy-and-hold comparison and the consistency gate each
+lower that rate, but none of them drive it to zero.
+
+Treat a validated result as *evidence worth testing forward*, not as a finding.
+The testnet exists precisely so that forward testing costs nothing.
+
+## Going live with real money
+
+`BINANCE_TESTNET=false` in `.env` points every order at the real exchange. Do
+not flip it because a backtest looked good. Fees, slippage, liquidity and regime
+changes all bite harder in production than in simulation, and spot trading can
+lose money.
+
+The **Validação** view answers the question directly, and is designed to be able
+to say no. A backtest describes data the strategy was chosen against; only a
+forward run describes data nobody has seen. Six conditions have to hold, and
+they fall into two tiers that clear on different clocks.
+
+The **execution tier** — parity and coverage — asks whether the engine does what
+the model says. That is a systematic property: a timing or pricing defect
+appears in the first two or three paired trades, because each live trade is
+compared against its own backtest twin rather than pooled into an average. It is
+expected to clear within weeks, and until it does nothing else on the list means
+anything, because a book that is profitable while filling somewhere the backtest
+never modelled is profitable by accident.
+
+The **evidence tier** — sample, tracking, drawdown — asks whether the edge is
+still there, which no amount of careful execution can answer and only time can.
+
+| Gate | Threshold | Why that number |
+| --- | --- | --- |
+| Every allocation still passes walk-forward | all of them | A book is only as validated as its worst member |
+| Live trades matching their backtest twin | 10 | The edge is established by walk-forward, on hundreds of trades. What a live run uniquely proves is that the engine executes the model — same decision candle, fill against the following open, cost inside the assumption — and an execution defect is systematic, so it shows up in the first few paired trades rather than needing a statistical sample |
+| Candle closes the bot was awake for | 90% | A candle slept through is invisible afterwards: a strategy that never fired and a strategy that fired while nobody was listening leave the same empty record |
+| Closed trades, and days of running | 100 **and** 270 | 270 days is three complete 90-day walk-forward windows, which is the smallest number of realised quarters that can be placed inside the distribution of measured ones — a single quarter is one draw and is consistent with almost any hypothesis. 100 closed trades puts the win rate inside roughly ±10 points; at 30 the interval is ±18 and separates nothing. Both bounds have to clear, because 100 trades inside one volatile month samples one regime, and nine quiet months with forty trades is time without evidence |
+| Realised result inside the band predicted when the book shipped | at or above the lower edge | A book can be profitable and still be broken; what matters is whether it behaves like the thing that was measured. The band runs from the median expectation to the worst measured quarter, scaled to elapsed time by the square root of the horizon, and is frozen on the day the book was deployed so it cannot absorb the results it is judging. Sitting below the median is normal; leaving the band from underneath is not |
+| Observed drawdown within the configured limit | 20% | Roughly 1.7× the expected worst quarter, so it fires when something is broken rather than during a normal bad run |
+
+The expectation is scaled to the size actually traded — each allocation's median
+quarter divided by three, times its share of capital — which for the current
+book of 17 allocations at 500 of 10,000 came to **+2.97% per month across about
+27 trades**, against a worst measured quarter of **−11.85%**. Those are the
+numbers a real account should be expected to reproduce before it is funded, and
+they are stored in the `expectations` table exactly as they read on the day the
+book shipped rather than recomputed on demand — see *Realised against predicted*
+above for why that distinction is the whole exercise.
+
+At that trade rate the 100-trade bound arrives in under four months, so the
+270-day bound is the one that actually binds — which is the intended shape. The
+trade count exists to stop a book being judged on too few results; the calendar
+exists to stop it being judged on too few market conditions, and the second is
+the harder problem.
+
+The API keys in `.env` are testnet-only. Never commit real keys — `.env` is
+already in `.gitignore`.
+
+## License
+
+MIT

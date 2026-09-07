@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pouch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="/assets/style.css">
+<link rel="icon" type="image/svg+xml" href="/assets/logo.svg">
+</head>
+<body>
+
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="brand-mark" src="/assets/logo.svg" width="36" height="36"
+           alt="Pouch">
+      <div class="brand-text">
+        <strong>Pouch</strong>
+        <span id="brand-mode">testnet</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24"><path d="M3 13h6v8H3zM9 3h6v18H9zM15 9h6v12h-6z"/></svg>
+        <span>Painel</span>
+      </button>
+      <button class="nav-item" data-view="lab">
+        <svg viewBox="0 0 24 24"><path d="M9 2h6v6l5 9a3 3 0 0 1-2.6 4.5H6.6A3 3 0 0 1 4 17l5-9z"/></svg>
+        <span>Pesquisa</span>
+      </button>
+      <button class="nav-item" data-view="trades">
+        <svg viewBox="0 0 24 24"><path d="M4 6h16v2H4zM4 11h16v2H4zM4 16h10v2H4z"/></svg>
+        <span>Operações</span>
+      </button>
+      <button class="nav-item" data-view="validation">
+        <svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.4 9.4 8 11 4.6-1.6 8-6 8-11V5zm-1 13-3-3 1.4-1.4L11 12.2l4.6-4.6L17 9z"/></svg>
+        <span>Validação</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <svg viewBox="0 0 24 24"><path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8zm9 4-2 1 .3 2.2-2 1.2-1.8-1.3-2 .8-.6 2.1h-2.3l-.6-2.1-2-.8L6.2 16l-2-1.2L4.5 13l-2-1 .5-2.2 1.9-1L4.6 6.6l1.8-1.5 2 1 1.9-1L11 3h2l.7 2.1 1.9 1 2-1 1.8 1.5-.3 2.2 1.9 1z"/></svg>
+        <span>Ajustes</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="status-line"><span class="dot" id="dot-market"></span> Mercado</div>
+      <div class="status-line"><span class="dot" id="dot-account"></span> Conta</div>
+      <div class="status-line"><span class="dot" id="dot-bot"></span> Robô</div>
+    </div>
+  </aside>
+
+  <main class="content">
+
+    <header class="topbar">
+      <div>
+        <h1 id="view-title">Painel</h1>
+        <p id="view-subtitle" class="muted">Resultado consolidado das estratégias em operação</p>
+      </div>
+      <div class="topbar-actions">
+        <div class="balance" title="USDT livre na conta da corretora. Difere do patrimônio de propósito: o patrimônio parte do capital inicial configurado em Ajustes e soma só o que este robô ganhou ou perdeu. O saldo é a conta real, que começou com o valor que a testnet entregou (não exatamente o configurado), carrega operações anteriores ao histórico atual, e cai pelo valor cheio da ordem enquanto uma posição está aberta — esse dinheiro virou moeda, e o patrimônio continua contando a moeda a preço de mercado.">
+          <span class="muted">Saldo livre</span>
+          <strong id="free-balance">—</strong>
+        </div>
+        <button class="btn btn-ghost" id="btn-refresh" title="Atualizar">
+          <svg viewBox="0 0 24 24"><path d="M12 5V2L7 6l5 4V7a5 5 0 1 1-5 5H5a7 7 0 1 0 7-7z"/></svg>
+        </button>
+        <button class="btn btn-primary" id="btn-toggle-bot">Ligar robô</button>
+      </div>
+    </header>
+
+    <!-- ---------------------------------------------------------- DASHBOARD -->
+    <section class="view active" id="view-dashboard">
+
+      <div class="book-switch">
+        <div class="seg seg-book" id="book-toggle">
+          <button class="seg-btn is-on" data-book="live">Livro validado</button>
+          <button class="seg-btn" data-book="ml">Laboratório ML</button>
+        </div>
+        <p class="hint" id="book-hint">—</p>
+      </div>
+
+      <div class="kpi-grid" data-book-only="live ml">
+        <div class="kpi kpi-hero">
+          <span class="kpi-label">Patrimônio</span>
+          <strong class="kpi-value" id="kpi-equity">—</strong>
+          <span class="kpi-delta" id="kpi-equity-delta">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Resultado total</span>
+          <strong class="kpi-value" id="kpi-pnl">—</strong>
+          <span class="kpi-sub" id="kpi-pnl-split">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Taxa de acerto</span>
+          <strong class="kpi-value" id="kpi-winrate">—</strong>
+          <span class="kpi-sub" id="kpi-winrate-sub">—</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Fator de lucro</span>
+          <strong class="kpi-value" id="kpi-pf">—</strong>
+          <span class="kpi-sub">ganho bruto ÷ perda bruta</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label">Rebaixamento máx.</span>
+          <strong class="kpi-value neg" id="kpi-dd">—</strong>
+          <span class="kpi-sub">maior queda do pico</span>
+        </div>
+        <div class="kpi">
+          <span class="kpi-label" id="kpi-last-label">Sharpe</span>
+          <strong class="kpi-value" id="kpi-sharpe">—</strong>
+          <span class="kpi-sub" id="kpi-last-sub">retorno por unidade de risco</span>
+        </div>
+      </div>
+
+      <div class="panel" data-book-only="live ml">
+        <div class="panel-head">
+          <h2>Lucro e perda</h2>
+          <span class="muted" id="pnl-mode">—</span>
+        </div>
+        <div class="waterfall" id="pnl-waterfall"></div>
+      </div>
+
+      <div class="panel" data-book-only="live ml">
+        <div class="panel-head">
+          <h2>Curva de patrimônio</h2>
+          <span class="muted" id="equity-range">—</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="equity-chart" height="260"></canvas>
+          <div class="chart-tip" id="equity-tip" hidden></div>
+        </div>
+        <p class="empty" id="equity-empty" hidden>
+          Sem histórico ainda. Ligue o robô ou rode um ciclo manual em Ajustes.
+        </p>
+      </div>
+
+      <!-- ------------------------------------------------------ exit study -->
+
+      <div class="panel panel-study" data-book-only="live" id="exit-study">
+        <div class="panel-head">
+          <h2>Sair pela regra ou sair no lucro</h2>
+          <div class="panel-actions">
+            <button class="btn btn-small btn-ghost" id="btn-exit-tick">Rodar ciclo</button>
+            <button class="btn btn-small btn-primary" id="btn-exit-toggle">Ligar</button>
+          </div>
+        </div>
+        <p class="hint">As mesmas operações do livro validado, saindo de quatro
+          jeitos. <strong>Regra decide</strong> sai quando o livro sai; as outras
+          vendem no lucro do alvo e, se o alvo não vier, esperam a regra. Só a
+          saída muda, então a diferença entre as linhas é a saída.</p>
+
+        <div class="table-wrap">
+          <table id="exit-arms-table">
+            <thead>
+              <tr><th>Saída</th><th class="num">Patrimônio</th><th class="num">Retorno</th>
+                  <th class="num">vs. regra</th><th class="num">Operações</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="chart-wrap">
+          <canvas id="exit-equity-chart" height="200"></canvas>
+          <div class="chart-tip" id="exit-equity-tip" hidden></div>
+        </div>
+        <div class="legend" id="exit-legend"></div>
+        <p class="empty" id="exit-equity-empty" hidden>
+          Sem histórico ainda. O estudo grava um ponto por ciclo, a cada cinco
+          minutos, depois de ligado.
+        </p>
+
+        <p class="hint" id="exit-note">—</p>
+
+        <details class="fold">
+          <summary>Os números por trás</summary>
+
+          <p class="hint" id="exit-scope">—</p>
+          <p class="hint muted" id="exit-equity-range">—</p>
+
+          <h3 class="sub">Comparação emparelhada</h3>
+          <p class="hint">Só as operações que as duas saídas fecharam,
+            emparelhadas pela operação original. Isso tira do resultado a sorte
+            de <em>quais</em> moedas foram negociadas, que numa amostra pequena é
+            quase toda a variação que existe. Valor positivo em
+            <strong>regra − alvo</strong> significa que esperar a regra rendeu
+            mais. A média sozinha não decide nada: <strong>espalhamento</strong>
+            é o desvio das diferenças e <strong>t</strong> é a média dividida
+            pelo erro dela. Abaixo de |t| = 2 a diferença está dentro do próprio
+            ruído, qualquer que seja o sinal.</p>
+          <div class="table-wrap">
+            <table id="exit-paired-table">
+              <thead>
+                <tr><th>Alvo</th><th class="num">Pares</th><th class="num">Regra − alvo</th>
+                    <th class="num">Espalhamento</th><th class="num">t</th>
+                    <th class="num">Regra ganhou</th><th class="num">Alvo ganhou</th>
+                    <th class="num">Empate</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-paired-empty" hidden>
+            Nenhum par completo ainda. Um par só existe quando a operação fechou
+            <em>nas duas</em> saídas: enquanto o alvo já vendeu e a regra ainda
+            segura a posição, não há o que subtrair.
+          </p>
+          <p class="hint muted" id="exit-paired-note">—</p>
+
+          <h3 class="sub">Cada par, um por um</h3>
+          <div class="table-wrap">
+            <table id="exit-pairs-table">
+              <thead>
+                <tr><th>Alvo</th><th>Moeda</th><th>Entrada</th>
+                    <th class="num">Saída no alvo</th><th class="num">Saída pela regra</th>
+                    <th class="num">Diferença</th><th>Motivo do alvo</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-pairs-empty" hidden>Sem pares fechados ainda.</p>
+
+          <h3 class="sub">Posições e operações do estudo</h3>
+          <p class="hint muted" id="exit-ledger-note">—</p>
+          <div class="table-wrap">
+            <table id="exit-ledger-table">
+              <thead>
+                <tr><th>Saída</th><th>Par</th><th>Estado</th><th class="num">Entrada</th>
+                    <th class="num">Alvo</th><th class="num">Saída</th>
+                    <th class="num">Resultado</th><th>Motivo</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="exit-ledger-empty" hidden>Nada espelhado ainda.</p>
+
+          <h3 class="sub">Atividade do estudo</h3>
+          <ul class="events" id="exit-events-list"></ul>
+        </details>
+      </div>
+
+      <div class="split" data-book-only="live ml">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Posições abertas</h2>
+            <button class="btn btn-small btn-danger" id="btn-close-all">Encerrar todas</button>
+          </div>
+          <div class="table-wrap">
+            <table id="positions-table">
+              <thead>
+                <tr><th>Par</th><th>Estratégia</th><th class="num">Aplicado</th>
+                    <th class="num">Entrada</th><th class="num">Atual</th>
+                    <th class="num">Valor hoje</th><th class="num">Resultado</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="empty" id="positions-empty">Nenhuma posição aberta.</p>
+        </div>
+
+        <div class="panel" data-book-only="live">
+          <div class="panel-head">
+            <h2>De onde vem o resultado</h2>
+            <div class="seg" id="breakdown-toggle">
+              <button class="seg-btn is-on" data-group="by_strategy">Estratégia</button>
+              <button class="seg-btn" data-group="by_symbol">Moeda</button>
+            </div>
+          </div>
+          <div id="breakdown-list" class="bar-list"></div>
+          <p class="empty" id="breakdown-empty">Sem operações encerradas ainda.</p>
+        </div>
+      </div>
+
+      <div class="panel" data-book-only="live">
+        <div class="panel-head">
+          <h2>Sinais agora</h2>
+          <span class="muted" id="signals-summary">—</span>
+        </div>
+        <p class="hint" id="signals-hint">O que cada estratégia está medindo na última
+          vela fechada e quanto falta para disparar. Quem já está comprado mostra a
+          regra de saída que está esperando.</p>
+        <div class="table-wrap">
+          <table id="signals-table">
+            <thead>
+              <tr><th>Par</th><th>Estratégia</th><th>Espera</th>
+                  <th class="num">Valor agora</th><th class="num">Nível</th>
+                  <th class="num">Distância</th><th class="num">Vira no preço</th>
+                  <th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="signals-empty">Nenhuma alocação configurada.</p>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>O modelo</h2>
+          <div class="panel-actions">
+            <button class="btn btn-small btn-ghost" id="btn-lab-train">Retreinar</button>
+            <button class="btn btn-small btn-ghost" id="btn-lab-tick">Rodar ciclo</button>
+            <button class="btn btn-small btn-primary" id="btn-lab-toggle">Ligar</button>
+          </div>
+        </div>
+        <p class="hint">Este livro não escolhe direção do mercado — ele escolhe
+          <em>quais</em> moedas segurar entre as que já estão no universo. A
+          referência não é zero: é segurar as dezoito em partes iguais. Ganhar de
+          zero num mercado de alta não é habilidade.</p>
+        <div id="lab-model-cards" class="stat-grid"></div>
+        <p class="empty" id="lab-model-empty" hidden>Nenhum modelo treinado ainda.</p>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>Validação janela a janela</h2>
+          <span class="muted" id="lab-cv-note">—</span>
+        </div>
+        <p class="hint">Caminhada para a frente com expurgo: treina em tudo que
+          veio antes do corte, pula três dias, testa no que vem depois. Cada
+          linha é uma janela que o modelo nunca viu. <strong>vant</strong> é
+          quanto a cesta rendeu por dia acima de segurar o universo inteiro.</p>
+        <div class="table-wrap">
+          <table id="lab-cv-table">
+            <thead>
+              <tr><th>Janela</th><th class="num">Dias</th><th class="num">Giro</th>
+                  <th class="num">Cesta/dia</th><th class="num">Referência</th>
+                  <th class="num">Vantagem</th><th class="num">t</th>
+                  <th class="num">Total</th><th class="num">Ref. total</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel" data-book-only="ml">
+        <div class="panel-head">
+          <h2>Ranking de hoje</h2>
+          <span class="muted" id="lab-rank-note">—</span>
+        </div>
+        <div class="table-wrap">
+          <table id="lab-rank-table">
+            <thead>
+              <tr><th class="num">#</th><th>Par</th><th class="num">Probabilidade</th>
+                  <th class="num">Preço</th><th class="num">7 dias</th>
+                  <th class="num">RSI</th><th class="num">Funding</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="lab-rank-empty" hidden>Sem modelo ativo.</p>
+      </div>
+
+      <div class="panel" data-book-only="live ml">
+        <div class="panel-head"><h2>Atividade recente</h2></div>
+        <ul class="events" id="events-list"></ul>
+      </div>
+
+    </section>
+
+    <!-- --------------------------------------------------------------- LAB -->
+    <section class="view" id="view-lab">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Buscar estratégias vencedoras</h2>
+          <span class="muted">otimiza no histórico antigo, valida no histórico recente</span>
+        </div>
+
+        <div class="form-grid">
+          <label class="field">
+            <span>Pares</span>
+            <input id="in-symbols" value="BTCUSDT, ETHUSDT, SOLUSDT, BNBUSDT">
+          </label>
+          <label class="field">
+            <span>Tempos gráficos</span>
+            <input id="in-intervals" value="1h, 4h">
+          </label>
+          <label class="field">
+            <span>Velas por par</span>
+            <input id="in-candles" type="number" value="3000" min="500" max="10000" step="500">
+          </label>
+          <div class="field field-action">
+            <button class="btn btn-primary" id="btn-research">Rodar pesquisa</button>
+          </div>
+        </div>
+
+        <div class="progress-box" id="research-progress" hidden>
+          <div class="progress-head">
+            <span id="research-stage">preparando…</span>
+            <span id="research-count">0/0</span>
+          </div>
+          <div class="progress"><div class="progress-bar" id="research-bar"></div></div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Ranking</h2>
+          <div class="head-tools">
+            <label class="check">
+              <input type="checkbox" id="chk-validated" checked>
+              <span>só aprovadas fora da amostra</span>
+            </label>
+            <button class="btn btn-small btn-primary" id="btn-allocate">Operar selecionadas</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="leaderboard-table">
+            <thead>
+              <tr>
+                <th class="tight"></th>
+                <th>Par</th><th>TF</th><th>Estratégia</th>
+                <th class="num">Retorno OOS</th><th class="num">Buy &amp; hold</th>
+                <th class="num">Sharpe</th><th class="num">Drawdown</th>
+                <th class="num">Trades</th><th class="num">Score</th><th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="leaderboard-empty">
+          Nenhuma pesquisa rodada ainda. Clique em <strong>Rodar pesquisa</strong> acima.
+        </p>
+      </div>
+
+      <div class="panel" id="detail-panel" hidden>
+        <div class="panel-head">
+          <h2 id="detail-title">Detalhe</h2>
+          <button class="btn btn-small btn-ghost" id="btn-close-detail">Fechar</button>
+        </div>
+        <div class="detail-grid" id="detail-metrics"></div>
+        <div class="chart-wrap">
+          <canvas id="detail-chart" height="220"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Coleta de contexto de mercado</h2>
+          <span class="chip" id="feeds-state">—</span>
+        </div>
+        <p class="hint">
+          Financiamento, posicionamento, sentimento e manchetes, gravados com a hora
+          em que <em>este processo</em> os recebeu — não a hora que a fonte declara.
+          É a diferença entre um modelo testável e um que leu o jornal de amanhã.
+          Financiamento e sentimento têm histórico para baixar; posicionamento e
+          notícias só existem daqui para frente, e é por isso que a coleta começa
+          antes de existir modelo para usá-la.
+        </p>
+        <div class="feeds" id="feeds-list"></div>
+        <div class="panel-head" style="margin-top:18px">
+          <h2 class="sub">Últimas manchetes vistas</h2>
+        </div>
+        <ul class="headlines" id="feeds-headlines"></ul>
+      </div>
+
+    </section>
+
+    <!-- ------------------------------------------------------------ TRADES -->
+    <section class="view" id="view-trades">
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Conferência com o modelo</h2>
+          <span class="muted" id="parity-summary">-</span>
+        </div>
+        <p class="hint">
+          Cada operação ao vivo comparada com a operação que o backtest teria feito
+          nas mesmas velas: mesma vela de decisão, preço de entrada contra a abertura
+          seguinte, resultado contra o resultado modelado. Divergência sem explicação
+          é defeito de execução, e é o que decide se este robô pode operar dinheiro
+          de verdade.
+        </p>
+        <div class="table-wrap">
+          <table id="parity-table">
+            <thead>
+              <tr><th>Moeda</th><th>Entrada</th><th class="num">Pago</th>
+                  <th class="num">Modelo</th><th class="num">Diferença</th>
+                  <th class="num">Resultado</th><th class="num">Esperado</th>
+                  <th>Veredito</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="parity-empty">Nenhuma operação para conferir ainda.</p>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Compras e vendas</h2>
+          <span class="muted" id="ledger-count">—</span>
+        </div>
+        <p class="hint">
+          Tudo o que o robô mandou para a corretora, em ordem de tempo. Cada posição são
+          duas linhas: a compra que tira dinheiro do caixa e a venda que devolve. O
+          resultado aparece na linha da venda, que é onde ele de fato acontece.
+        </p>
+        <div class="ledger-totals" id="ledger-totals"></div>
+        <div class="table-wrap">
+          <table id="ledger-table">
+            <thead>
+              <tr><th>Quando</th><th>Lado</th><th>Moeda</th><th>Estratégia</th>
+                  <th class="num">Quantidade</th><th class="num">Preço</th>
+                  <th class="num">Valor</th><th class="num">Caixa</th>
+                  <th class="num">Resultado</th><th>Motivo</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="ledger-empty">Nenhuma ordem enviada ainda.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Operações por moeda</h2>
+          <div class="seg" id="trades-mode">
+            <button class="seg-btn is-on" data-mode="live">Robô</button>
+            <button class="seg-btn" data-mode="sim">Simulado</button>
+          </div>
+          <span class="muted" id="trades-count">—</span>
+        </div>
+        <p class="hint" id="trades-hint"></p>
+        <div id="trades-groups"></div>
+        <p class="empty" id="trades-empty">Nenhuma operação registrada.</p>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- SETTINGS -->
+    <!-- --------------------------------------------------------- VALIDATION -->
+    <section class="view" id="view-validation">
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Pronto para conta real?</h2>
+          <span class="chip" id="readiness-verdict">—</span>
+        </div>
+        <p class="hint">
+          O teste em janelas móveis diz o que a estratégia fez em dados do passado.
+          Só a operação ao vivo diz o que ela faz em dados que ninguém viu. Enquanto
+          estes itens não estiverem todos verdes, o robô não tem histórico próprio
+          suficiente para justificar dinheiro real.
+        </p>
+        <div class="gates" id="readiness-gates"></div>
+        <div class="expect" id="readiness-expect"></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Realizado contra o previsto</h2>
+          <span class="chip" id="tracking-verdict">—</span>
+        </div>
+        <p class="hint">
+          A previsão foi congelada no dia em que o livro entrou em operação e nunca
+          é recalculada — uma expectativa refeita depois do fato já contém o período
+          que deveria julgar. A faixa é o trimestre mediano e o pior trimestre da
+          validação, encolhidos pela raiz do tempo decorrido: no primeiro dia a
+          margem é estreita, num trimestre é inteira. Sair da faixa por baixo é o
+          primeiro sinal de que a vantagem sumiu, e aparece em semanas, não em
+          trimestres.
+        </p>
+        <div class="chart-wrap">
+          <canvas id="tracking-chart" height="220"></canvas>
+        </div>
+        <div class="legend" id="tracking-legend"></div>
+        <div class="expect" id="tracking-now"></div>
+        <p class="empty" id="tracking-empty" hidden>Nenhuma expectativa registrada ainda.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Presença nos fechamentos de vela</h2>
+          <span class="muted" id="coverage-summary">-</span>
+        </div>
+        <p class="hint">
+          O robô só enxerga um sinal se estiver ligado na vela em que ele acontece.
+          Uma vela perdida não aparece em lugar nenhum: estratégia que nunca disparou
+          e estratégia que disparou sem ninguém ouvindo produzem o mesmo resultado
+          vazio. Esta tabela separa as duas.
+        </p>
+        <p class="hint" id="coverage-note" hidden></p>
+        <div class="table-wrap">
+          <table id="coverage-table">
+            <thead>
+              <tr><th>Timeframe</th><th class="num">Fechamentos</th><th class="num">Presente</th>
+                  <th class="num">Perdidos</th><th class="num">Cobertura</th>
+                  <th class="num">Atraso mediano</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Onde a vantagem aparece</h2>
+          <span class="chip" id="regime-verdict">—</span>
+        </div>
+        <p class="hint">
+          Cada trimestre da validação é rotulado pelo que o preço fez, nunca pelo
+          que a estratégia fez — o rótulo vem de comprar-e-segurar dividido pela
+          volatilidade do próprio trimestre, então <b>alta</b> e <b>baixa</b> são
+          movimentos maiores que o próprio ruído e <b>lateral</b> é o resto. É a
+          fatia que o total esconde: um livro com mediana positiva pode ter feito
+          tudo em dois trimestres de alta e sangrado em todos os laterais, o que é
+          uma proposta bem diferente — e nenhuma matriz de correlação mostra isso.
+        </p>
+        <div class="table-wrap">
+          <table id="regime-table">
+            <thead>
+              <tr><th>Regime</th><th class="num">Trimestres</th><th class="num">Fatia</th>
+                  <th class="num">Lucrativos</th><th class="num">Retorno mediano</th>
+                  <th class="num">Alfa mediano</th><th class="num">Pior</th>
+                  <th class="num">Comprar e segurar</th><th class="num">Ops.</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="empty" id="regime-empty">Sem janelas rotuladas ainda.</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Teste em janelas móveis</h2>
+          <span class="muted" id="validation-state">—</span>
+          <button class="btn btn-ghost" id="btn-validate">Recalcular</button>
+        </div>
+        <p class="hint">
+          Cada estratégia é recolocada no passado com os mesmos parâmetros que usa hoje
+          e obrigada a operar trimestre a trimestre, sem reajuste. O que importa não é o
+          total: é em quantos trimestres ela ganhou e qual foi o pior deles.
+        </p>
+        <div id="validation-cards"></div>
+        <p class="empty" id="validation-empty">Nenhuma estratégia em operação para validar.</p>
+      </div>
+    </section>
+
+    <section class="view" id="view-settings">
+
+      <div class="split">
+        <div class="panel">
+          <div class="panel-head"><h2>Operação</h2></div>
+          <div class="form-grid form-grid-2">
+            <label class="field">
+              <span>Modo</span>
+              <select id="in-mode">
+                <option value="testnet">Testnet (ordens reais, dinheiro fake)</option>
+                <option value="paper">Papel (simulado, sem ordens)</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Intervalo entre ciclos (s)</span>
+              <input id="in-poll" type="number" min="10" max="3600" value="60">
+            </label>
+            <label class="field">
+              <span>Valor por operação (USDT)</span>
+              <input id="in-quote" type="number" min="10" step="10" value="200">
+            </label>
+            <label class="field">
+              <span>Máx. posições simultâneas</span>
+              <input id="in-maxpos" type="number" min="1" max="20" value="3">
+            </label>
+            <label class="field">
+              <span>Capital de referência (USDT)</span>
+              <input id="in-capital" type="number" min="100" step="100" value="10000">
+            </label>
+            <div class="field field-action">
+              <button class="btn btn-primary" id="btn-save-config">Salvar</button>
+            </div>
+          </div>
+          <div class="row-actions">
+            <button class="btn btn-ghost" id="btn-tick">Rodar um ciclo agora</button>
+            <button class="btn btn-danger" id="btn-reset">Zerar histórico</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Risco da carteira</h2>
+            <span class="chip" id="risk-state">desligado</span>
+          </div>
+          <p class="hint">
+            Stop por operação foi medido e piora o resultado: nenhuma das 31 estratégias
+            aprovadas melhorou com qualquer stop puro. Estes controles agem sobre a carteira
+            inteira, onde não competem com a regra de saída de cada estratégia. Todos vêm
+            desligados.
+          </p>
+          <div class="form-grid form-grid-2">
+            <label class="field">
+              <span>Parar de abrir com queda de (%)</span>
+              <input id="in-maxdd" type="number" min="0" max="90" step="1" value="0">
+            </label>
+            <label class="field">
+              <span>Voltar a abrir ao recuperar para (%)</span>
+              <input id="in-resumedd" type="number" min="0" max="90" step="1" value="0">
+            </label>
+            <label class="field">
+              <span>Correlação máxima entre posições</span>
+              <input id="in-maxcorr" type="number" min="0" max="1" step="0.05" value="0">
+            </label>
+            <label class="field field-check">
+              <input id="in-volsize" type="checkbox">
+              <span>Ajustar tamanho pela volatilidade da moeda</span>
+            </label>
+            <div class="field field-action">
+              <button class="btn btn-primary" id="btn-save-risk">Salvar risco</button>
+            </div>
+          </div>
+          <p class="hint" id="risk-detail"></p>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Estratégias em operação</h2></div>
+          <div id="allocations-list" class="alloc-list"></div>
+          <p class="empty" id="allocations-empty">
+            Nenhuma. Vá ao Laboratório, rode a pesquisa e escolha as aprovadas.
+          </p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h2>Catálogo de estratégias</h2></div>
+        <div id="catalog-list" class="catalog"></div>
+      </div>
+
+    </section>
+
+  </main>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/assets/app.js"></script>
+</body>
+</html>
