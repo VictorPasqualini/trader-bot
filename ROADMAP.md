@@ -1402,7 +1402,8 @@ to its own results. The forward test is untouched.
 
 ## Next
 
-Ordered by expected value, highest first.
+Ordered by expected value, highest first — except item 2, which is placed on
+what it would teach rather than what it would earn.
 
 ### 1. Move the run to a host that does not sleep
 
@@ -1411,7 +1412,62 @@ remains is provisioning the host, copying the database and keys, and calling
 `POST /api/coverage/baseline` once at the moment of the move — not before. Until
 that happens every outage is worth ten days of gate progress.
 
-### 2. Act on the regime split
+### 2. A first real-money phase: $20 a month, hold against sell-into-strength
+
+Two strategies on Bitcoin, funded by a $20 monthly deposit. One buys and never
+sells. The other buys and sells as soon as the position is up. Small in money
+and large in what it teaches: it is the only item on this list that tests
+custody, funding, real fills and real fees, none of which the Spot Testnet can
+be made to charge.
+
+It is also the same question the Phase 18 exit study is measuring right now, on
+paper, on the validated book's own trades. That study is the dry run for this
+phase and should be allowed to report before it starts — if holding beats
+selling into strength on the paired trades, the second strategy is answered
+before a cent is spent.
+
+What has to be built or decided first, in order:
+
+1. **An always-on host.** Item 1 above is a hard prerequisite, not a
+   preference. A strategy that sells on strength cannot miss candle closes, and
+   coverage on this deployment has been measured at 15.4%.
+2. **Two strategies on one spot balance.** The decision log says one allocation
+   per symbol, for a concrete reason: on a spot account both strategies own the
+   same BTC, so the seller can sell the holder's coins. Nothing in the ledger
+   today prevents that. Either the book gets per-strategy lot accounting — each
+   strategy owns named lots and may only sell its own — or the two run in
+   separate exchange sub-accounts. This is the real work in the phase.
+3. **Contributions are not capital changes.** Every return in the code is an
+   equity delta over a fixed `start_capital`, and `record_capital_shift` exists
+   to restate history when that base moves. A monthly deposit is neither: it is
+   new money, and counting it as profit would report a 100% first-month gain on
+   a $20 deposit into a $20 book. This needs unit accounting — deposits buy
+   units at the current unit price, and return is measured on the unit price —
+   or a money-weighted return. It is a new requirement, not a patch to the
+   existing arithmetic.
+4. **A benchmark that is one of the arms.** The holder *is* buy-and-hold, so for
+   once the benchmark is not a separate calculation: the seller has to beat the
+   holder on the same deposits over the same dates, and both are on the screen.
+5. **The minimum order size.** $20 split two ways is $10 a leg. Binance's
+   BTCUSDT minimum notional and lot step decide whether that is even placeable,
+   and `exchange.round_qty` floors to the step — so the real purchase is never
+   exactly $10, which the lab and the exit study both had to be fixed for.
+
+Two things worth writing down before the temptation arrives:
+
+- **BTC was dropped from the live allocations on purpose.** Its validated
+  candidates beat buy-and-hold by about 6pp over three years, which is
+  indistinguishable from noise. There is no measured edge in this repository for
+  timing Bitcoin. The seller therefore starts as a question, not as a strategy —
+  and "sells when it is up" is not yet a rule: up by how much, measured from
+  what, is exactly what the exit study exists to answer.
+- **`BINANCE_TESTNET=false` points every order at the real exchange.** Real keys
+  for this phase should be created fresh, restricted to spot trading with
+  withdrawals disabled, and IP-allowlisted to the host from item 1. The keys
+  committed in `python/phase_4.py` are testnet-only and are still in git
+  history; they must be revoked regardless of this phase.
+
+### 3. Act on the regime split
 
 Phase 16 measured that the book loses to holding in fourteen bull windows out of
 fifteen and beats it in every bear window. Two things follow, and neither is
@@ -1421,7 +1477,7 @@ beating a long benchmark with a long-only book in a rally is not the thing this
 book is for. Both need the forward test to finish first — changing what gets
 traded now would end the test of what was measured.
 
-### 3. Promote or bury the ranking model
+### 4. Promote or bury the ranking model
 
 Phase 18 built it as a separate book on purpose: it is an experiment, and an
 experiment that shares a ledger with a frozen forward test contaminates it. That
@@ -1438,7 +1494,7 @@ and positioning are already wired into the panel and gated at 30% coverage, so
 they arrive when there is enough history to walk them forward, around a year
 from the start of collection, and not before.
 
-### 4. Short and market-neutral
+### 5. Short and market-neutral
 
 Everything so far is spot-long-only, which means every strategy is structurally
 long crypto beta. That is why beating buy-and-hold is so hard: the benchmark is
